@@ -24,7 +24,6 @@ type Manager struct {
 	openai     *OpenAIEmbedder
 
 	// Provider 状态 (true = 可用, false = 不可用/降级)
-	// 使用 sync.Map 或 atomic 更好，这里简单用 mutex 保护 map
 	statusMu     sync.RWMutex
 	providerDown map[string]bool
 
@@ -112,62 +111,70 @@ func (m *Manager) GetEmbedding(ctx context.Context, text string) ([]float32, err
 	return nil, fmt.Errorf("empty result")
 }
 
-// GetEmbeddingBatch 批量获取向量 (含缓存 + 策略降级)
+// GetEmbeddingBatch 批量获取向量 (含缓存 + 策略降级 + 差量计算)
 func (m *Manager) GetEmbeddingBatch(ctx context.Context, texts []string) ([][]float32, error) {
-	// 1. 预检查缓存
-	// 复杂的批量缓存逻辑：部分命中缓存，部分未命中。
-	// 为简化实现，这里先只查缓存，如果全部命中则直接返回；否则（只要有一个未命中）就全量调 API。
-	// TODO: 实现精细的“部分缓存命中”合并逻辑（Diff）
-	allCached := true
-	cachedResults := make([][]float32, len(texts))
+	finalResults := make([][]float32, len(texts))
 	hashes := make([]string, len(texts))
 
+	// 记录需要计算的文本索引和内容
+	var missingIndices []int
+	var missingTexts []string
+
+	// 1. 检查缓存
 	for i, text := range texts {
 		h := md5Hash(text)
 		hashes[i] = h
 		if vec, err := m.cacheStore.GetCachedEmbedding(h); err == nil && vec != nil {
-			cachedResults[i] = vec
+			finalResults[i] = vec
 		} else {
-			allCached = false
-			// 只要有一个没命中，简单起见我们先不 break，继续查完，看是否碰巧全命中
+			missingIndices = append(missingIndices, i)
+			missingTexts = append(missingTexts, text)
 		}
 	}
 
-	if allCached {
-		return cachedResults, nil
+	// 如果全部命中缓存，直接返回（Zero API Call）
+	if len(missingTexts) == 0 {
+		return finalResults, nil
 	}
 
-	// 2. 执行 Embedding 策略 (Batch)
-	var vecs [][]float32
+	log.Printf("[INFO] Cache Hit: %d/%d. Fetching %d missing embeddings...", len(texts)-len(missingTexts), len(texts), len(missingTexts))
+
+	// 2. 仅对缺失部分执行 Embedding
+	var computedVecs [][]float32
 	var err error
 
 	strategy := m.cfg.EmbeddingStrategy
 	switch strategy {
 	case "accuracy_first":
-		vecs, err = m.tryChainBatch(ctx, texts, m.openai, m.cloudflare, m.local)
+		computedVecs, err = m.tryChainBatch(ctx, missingTexts, m.openai, m.cloudflare, m.local)
 	case "local_only":
-		vecs, err = m.tryChainBatch(ctx, texts, m.local)
+		computedVecs, err = m.tryChainBatch(ctx, missingTexts, m.local)
 	case "cloud_first":
 		fallthrough
 	default:
-		vecs, err = m.tryChainBatch(ctx, texts, m.cloudflare, m.local)
+		computedVecs, err = m.tryChainBatch(ctx, missingTexts, m.cloudflare, m.local)
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("all embedding strategies failed: %w", err)
+		return nil, fmt.Errorf("all embedding strategies failed for missing items: %w", err)
 	}
 
-	// 3. 写入缓存 (异步或同步)
-	// 这里用同步防止丢失，性能影响可接受
-	for i, vec := range vecs {
-		if cachedResults[i] == nil { // 只写入未命中的
-			if err := m.cacheStore.SetCachedEmbedding(hashes[i], vec); err != nil {
-				log.Printf("[WARN] Failed to cache embedding: %v", err)
-			}
+	if len(computedVecs) != len(missingTexts) {
+		return nil, fmt.Errorf("embedding count mismatch: sent %d, got %d", len(missingTexts), len(computedVecs))
+	}
+
+	// 3. 合并结果并写入缓存
+	for i, idx := range missingIndices {
+		vec := computedVecs[i]
+		finalResults[idx] = vec // 填回原位
+
+		// 写入缓存
+		if err := m.cacheStore.SetCachedEmbedding(hashes[idx], vec); err != nil {
+			log.Printf("[WARN] Failed to cache embedding: %v", err)
 		}
 	}
 
-	return vecs, nil
+	return finalResults, nil
 }
 
 // tryChainBatch 尝试执行链 (Batch)
