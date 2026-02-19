@@ -1,6 +1,7 @@
 # 二进制产物
 clawmem
 clawmem-linux-*
+clawmem-mcp*
 
 # 数据目录
 data/
