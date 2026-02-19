@@ -7,19 +7,23 @@ import (
 
 	"github.com/philippgille/chromem-go"
 	"github.com/xiaotiyanlove-star/clawmem/config"
-	"github.com/xiaotiyanlove-star/clawmem/internal/llm"
 )
+
+// EmbeddingProvider 定义获取向量的接口，解耦 embedding 包依赖
+type EmbeddingProvider interface {
+	GetEmbedding(ctx context.Context, text string) ([]float32, error)
+}
 
 // VectorStore 封装 chromem-go 向量数据库
 type VectorStore struct {
 	db         *chromem.DB
 	collection *chromem.Collection
-	llmClient  *llm.Client
+	embedder   EmbeddingProvider
 	cfg        *config.Config
 }
 
 // NewVectorStore 创建并初始化向量存储
-func NewVectorStore(cfg *config.Config, llmClient *llm.Client) (*VectorStore, error) {
+func NewVectorStore(cfg *config.Config, embedder EmbeddingProvider) (*VectorStore, error) {
 	// 确保目录存在
 	if err := os.MkdirAll(cfg.VectorDBPath, 0o755); err != nil {
 		return nil, fmt.Errorf("创建向量库目录失败: %w", err)
@@ -31,9 +35,9 @@ func NewVectorStore(cfg *config.Config, llmClient *llm.Client) (*VectorStore, er
 		return nil, fmt.Errorf("创建向量数据库失败: %w", err)
 	}
 
-	// 创建自定义 Embedding 函数，对接外部 API
+	// 创建自定义 Embedding 函数
 	embeddingFunc := func(ctx context.Context, text string) ([]float32, error) {
-		return llmClient.Embed(ctx, text)
+		return embedder.GetEmbedding(ctx, text)
 	}
 
 	// 获取或创建 Collection
@@ -45,7 +49,7 @@ func NewVectorStore(cfg *config.Config, llmClient *llm.Client) (*VectorStore, er
 	return &VectorStore{
 		db:         db,
 		collection: collection,
-		llmClient:  llmClient,
+		embedder:   embedder,
 		cfg:        cfg,
 	}, nil
 }

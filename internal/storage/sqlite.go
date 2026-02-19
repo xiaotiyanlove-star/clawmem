@@ -56,8 +56,46 @@ func (s *SQLiteStore) migrate() error {
 
 	CREATE INDEX IF NOT EXISTS idx_memories_user_id ON memories(user_id);
 	CREATE INDEX IF NOT EXISTS idx_memories_session ON memories(user_id, session_id);
+
+	CREATE TABLE IF NOT EXISTS embedding_cache (
+		hash TEXT PRIMARY KEY,
+		vector TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
 	`
 	_, err := s.db.Exec(schema)
+	return err
+}
+
+// GetCachedEmbedding 获取缓存的向量
+func (s *SQLiteStore) GetCachedEmbedding(hash string) ([]float32, error) {
+	var vectorJSON string
+	err := s.db.QueryRow("SELECT vector FROM embedding_cache WHERE hash = ?", hash).Scan(&vectorJSON)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var vector []float32
+	if err := json.Unmarshal([]byte(vectorJSON), &vector); err != nil {
+		return nil, err
+	}
+	return vector, nil
+}
+
+// SetCachedEmbedding 设置缓存向量
+func (s *SQLiteStore) SetCachedEmbedding(hash string, vector []float32) error {
+	vectorJSON, err := json.Marshal(vector)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.Exec(`
+		INSERT OR IGNORE INTO embedding_cache (hash, vector)
+		VALUES (?, ?)
+	`, hash, string(vectorJSON))
 	return err
 }
 

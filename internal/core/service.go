@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/xiaotiyanlove-star/clawmem/config"
+	"github.com/xiaotiyanlove-star/clawmem/internal/embedding"
 	"github.com/xiaotiyanlove-star/clawmem/internal/llm"
 	"github.com/xiaotiyanlove-star/clawmem/internal/model"
 	"github.com/xiaotiyanlove-star/clawmem/internal/storage"
@@ -15,24 +16,26 @@ import (
 
 // MemoryService 核心记忆服务
 type MemoryService struct {
-	cfg         *config.Config
-	sqlStore    *storage.SQLiteStore
-	vectorStore *storage.VectorStore
-	llmClient   *llm.Client
+	cfg          *config.Config
+	sqlStore     *storage.SQLiteStore
+	vectorStore  *storage.VectorStore
+	llmClient    *llm.Client
+	embedManager *embedding.Manager
 }
 
 // NewMemoryService 创建记忆服务实例
-func NewMemoryService(cfg *config.Config, sqlStore *storage.SQLiteStore, vectorStore *storage.VectorStore, llmClient *llm.Client) *MemoryService {
+func NewMemoryService(cfg *config.Config, sqlStore *storage.SQLiteStore, vectorStore *storage.VectorStore, llmClient *llm.Client, embedManager *embedding.Manager) *MemoryService {
 	return &MemoryService{
-		cfg:         cfg,
-		sqlStore:    sqlStore,
-		vectorStore: vectorStore,
-		llmClient:   llmClient,
+		cfg:          cfg,
+		sqlStore:     sqlStore,
+		vectorStore:  vectorStore,
+		llmClient:    llmClient,
+		embedManager: embedManager,
 	}
 }
 
 // AddMemory 添加一条新记忆
-// 流程: 接收文本 -> (可选)LLM提取摘要 -> 存入SQLite(元数据) + Chromem(向量)
+// 流程: 接收文本 -> (可选)LLM提取摘要 -> 存入SQLite(元数据) + embeddingManager获取向量 -> Chromem(向量)
 func (s *MemoryService) AddMemory(ctx context.Context, req *model.AddMemoryRequest) (*model.Memory, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()

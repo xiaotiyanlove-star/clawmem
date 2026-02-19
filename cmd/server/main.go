@@ -10,6 +10,7 @@ import (
 	"github.com/xiaotiyanlove-star/clawmem/config"
 	"github.com/xiaotiyanlove-star/clawmem/internal/api"
 	"github.com/xiaotiyanlove-star/clawmem/internal/core"
+	"github.com/xiaotiyanlove-star/clawmem/internal/embedding"
 	"github.com/xiaotiyanlove-star/clawmem/internal/llm"
 	"github.com/xiaotiyanlove-star/clawmem/internal/storage"
 )
@@ -28,14 +29,17 @@ func main() {
 	}
 	defer sqlStore.Close()
 
+	// 初始化 Embedding Manager
+	embedManager := embedding.NewManager(cfg, sqlStore)
+
 	// 初始化向量存储
-	vectorStore, err := storage.NewVectorStore(cfg, llmClient)
+	vectorStore, err := storage.NewVectorStore(cfg, embedManager)
 	if err != nil {
 		log.Fatalf("初始化向量存储失败: %v", err)
 	}
 
 	// 初始化核心服务
-	service := core.NewMemoryService(cfg, sqlStore, vectorStore, llmClient)
+	service := core.NewMemoryService(cfg, sqlStore, vectorStore, llmClient, embedManager)
 
 	// 初始化 HTTP 路由
 	gin.SetMode(gin.ReleaseMode)

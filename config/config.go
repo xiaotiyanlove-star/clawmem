@@ -31,6 +31,13 @@ type Config struct {
 
 	// 向量维度（需与 Embedding 模型输出一致）
 	EmbedDimension int
+
+	// Embedding 策略: cloud_first, accuracy_first, local_only
+	EmbeddingStrategy string
+
+	// Cloudflare 配置
+	CFAccountID string
+	CFAPIToken  string
 }
 
 // Load 从环境变量中加载配置
@@ -50,6 +57,9 @@ func Load() *Config {
 		LLMModel:          getEnv("LLM_MODEL", "gpt-4o-mini"),
 		DisableLLMSummary: disableSummary,
 		EmbedDimension:    dim,
+		EmbeddingStrategy: getEnv("EMBEDDING_STRATEGY", "cloud_first"),
+		CFAccountID:       getEnv("CF_ACCOUNT_ID", ""),
+		CFAPIToken:        getEnv("CF_API_TOKEN", ""),
 	}
 }
 
