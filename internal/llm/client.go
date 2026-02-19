@@ -118,6 +118,68 @@ type chatResponse struct {
 	} `json:"choices"`
 }
 
+// Chat 通用聊天接口，支持自定义 system prompt 和 user message
+// 可选传入自定义的 base/key/model，为空则使用默认配置
+func (c *Client) Chat(ctx context.Context, systemPrompt, userMessage string, overrideBase, overrideKey, overrideModel string) (string, error) {
+	base := c.llmBase
+	key := c.llmKey
+	model := c.llmModel
+	if overrideBase != "" {
+		base = overrideBase
+	}
+	if overrideKey != "" {
+		key = overrideKey
+	}
+	if overrideModel != "" {
+		model = overrideModel
+	}
+
+	reqBody := chatRequest{
+		Model: model,
+		Messages: []chatMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userMessage},
+		},
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("序列化请求失败: %w", err)
+	}
+
+	url := base + "/chat/completions"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("请求 LLM API 失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("LLM API 返回错误 %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result chatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("解析 LLM 响应失败: %w", err)
+	}
+
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("LLM API 返回空结果")
+	}
+
+	return result.Choices[0].Message.Content, nil
+}
+
 // Summarize 使用 LLM 从对话内容中提取关键记忆摘要
 func (c *Client) Summarize(ctx context.Context, content string) (string, error) {
 	systemPrompt := `你是一个记忆提取助手。请从以下对话内容中提取关键信息，生成简洁的记忆摘要。

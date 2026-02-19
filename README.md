@@ -103,6 +103,72 @@ Configuration is stored in `/etc/clawmem/config.env`.
 | :--- | :--- | :--- |
 | `DISABLE_LLM_SUMMARY` | `true` | If `false`, uses LLM to summarize long memories before storage (requires LLM config). |
 
+### 🌙 Dream (Memory Consolidation)
+
+Dream is an optional background process that periodically consolidates fragmented memories into concise, high-quality entries — like how the human brain organizes memories during sleep.
+
+**Disabled by default.** Set `DREAM_ENABLED=true` to activate. When disabled, Dream has zero impact on existing functionality.
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `DREAM_ENABLED` | `false` | Enable the Dream memory consolidation feature. |
+| `DREAM_INTERVAL` | `24h` | How often to run consolidation (e.g., `12h`, `6h`, `24h`). |
+| `DREAM_WINDOW` | `24h` | Time window to look back for memories to consolidate. |
+| `DREAM_MIN_COUNT` | `10` | Minimum number of memories required to trigger a cycle (avoids wasting tokens on quiet days). |
+| `DREAM_MAX_ITEMS` | `200` | Maximum memories to process per cycle (prevents token explosion). |
+| `DREAM_LLM_BASE` | *(uses `LLM_API_BASE`)* | Override LLM endpoint for Dream (e.g., use a cheaper model). |
+| `DREAM_LLM_KEY` | *(uses `LLM_API_KEY`)* | Override LLM API key for Dream. |
+| `DREAM_LLM_MODEL` | *(uses `LLM_MODEL`)* | Override LLM model for Dream (e.g., `gemini-2.0-flash`). |
+| `DREAM_PROMPT` | *(built-in)* | Custom system prompt for the consolidation LLM call. |
+
+#### How Dream Works
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Every DREAM_INTERVAL (e.g., 24h)                   │
+│                                                     │
+│  1. Fetch active memories from last DREAM_WINDOW    │
+│  2. Skip if count < DREAM_MIN_COUNT                 │
+│  3. Send to LLM: "Consolidate these fragments"      │
+│  4. LLM returns concise facts (conflict-resolved)   │
+│  5. Store new "dream" memories (tagged, searchable)  │
+│  6. Mark originals as "consolidated" (soft archive)  │
+└─────────────────────────────────────────────────────┘
+```
+
+**What Dream solves:**
+- **Memory conflicts**: If you said "I like A" yesterday and "I hate A" today, Dream keeps only the latest preference.
+- **Noise accumulation**: 500 chat fragments → 5 concise facts. Dramatically improves retrieval quality.
+- **Token waste**: Smaller, cleaner memory = cheaper and more accurate LLM responses.
+
+#### Manual Trigger
+
+You can trigger a Dream cycle at any time via the API:
+
+```bash
+curl -X POST http://localhost:8090/api/v1/dream/trigger
+```
+
+#### Example
+
+**Before Dream** (raw fragments):
+```
+[1] "好的，我知道了"
+[2] "服务器 IP 是 1.2.3.4"
+[3] "嗯嗯"
+[4] "把端口改成 8080"
+[5] "之前说的 IP 不对，应该是 5.6.7.8"
+[6] "收到"
+```
+
+**After Dream** (consolidated):
+```
+- Server IP: 5.6.7.8 (updated from 1.2.3.4)
+- Server port: 8080
+```
+
+6 fragments → 2 facts. Clean, conflict-resolved, and searchable.
+
 ---
 
 ## 🔌 OpenClaw Integration
