@@ -2,6 +2,9 @@
 
 **The "Sovereign Memory" for Low-Cost AI Agents.**
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Go Report Card](https://goreportcard.com/badge/github.com/xiaotiyanlove-star/clawmem)](https://goreportcard.com/report/github.com/xiaotiyanlove-star/clawmem)
+
 [🇨🇳 中文文档 (Chinese Documentation)](docs/README_zh.md)
 
 ---
@@ -16,27 +19,39 @@ Running a smart AI Agent usually requires a **Vector Database** and an **Embeddi
 
 **ClawMem** is designed to be the **lightest, most resilient memory layer** for your sovereign AI agent.
 
-### 🧠 The "Magic" of Vectors (Why you need this)
-
-Traditional databases use **Keyword Search**.
-*   *You search*: "Apple" -> *Result*: "Apple pie" (Matches word).
-*   *You search*: "iPhone" -> *Result*: Nothing (No match).
-
-ClawMem uses **Vector Semantic Search**.
-*   It converts text into numbers (vectors) representing **meaning**.
-*   *You search*: "Fruit" -> *Result*: "Apple pie", "Banana" (It understands categories).
-*   *You search*: "Device" -> *Result*: "iPhone", "Laptop" (It understands context).
-
-**Benefit**: Your agent stops being a goldfish. It remembers context, preferences, and details naturally, just like a human.
-
 ### ✨ Key Benefits
 
-1.  **💰 Zero Cost**: Use **Cloudflare Workers AI (Free Tier)** for GPT-4 level semantic understanding.
-2.  **🪶 Featherlight**: Pure Go. No Docker/Python. Binary is **~15MB**, RAM usage **<20MB**.
-3.  **🛡️ Bulletproof**:
-    *   **Cloud Down?** Falls back to local/mock models.
+1.  **💸 Token Efficiency (Huge Cost Saver)**:
+    *   Without Memory: You must feed the *entire* chat history to the LLM context window. Expensive & slow.
+    *   **With ClawMem**: Retrieve only the *top 3 relevant memories*. Keep your context window small, fast, and cheap.
+2.  **💰 Zero Infra Cost**: Use **Cloudflare Workers AI (Free Tier)** for GPT-4 level semantic understanding.
+3.  **🪶 Featherlight**: Pure Go. No Docker/Python. Binary is **~15MB**, RAM usage **<20MB**.
+4.  **🛡️ Bulletproof Resilience**:
+    *   **Cloud Down?** Automatically falls back to local models.
     *   **Rate Limit?** Degrades gracefully without crashing.
-4.  **🧠 Plug-and-Play**: Comes with a ready-to-use **OpenClaw Skill**.
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+graph TD
+    User[OpenClaw Agent] -->|Store/Search| API[HTTP API :8090]
+    API --> Service[Core Service]
+    Service -->|Text Data| SQLite[(SQLite DB\nRaw Text)]
+    Service -->|Get Vector| Manager[Embedding Manager]
+    
+    subgraph "Tiered Strategies"
+        Manager -->|Tier 1 (Priority)| CF[Cloudflare Workers AI]
+        Manager -->|Tier 1 (Alt)| OA[OpenAI Compatible]
+        Manager -->|Tier 0 (Fallback)| Local[Local Mock/Lite Model]
+    end
+    
+    Manager -->|Vector Data| VectorDB[(Vector Store\nChromem-go)]
+    
+    style CF fill:#f9f,stroke:#333
+    style VectorDB fill:#bbf,stroke:#333
+```
 
 ---
 
@@ -55,7 +70,38 @@ sudo ./scripts/install.sh
 *   Database Path (Default: `/var/lib/clawmem/...`)
 *   Cloudflare Credentials (Account ID & Token)
 
-Then it auto-compiles and starts the systemd service.
+It automatically compiles the binary and configures the systemd service.
+
+---
+
+## 🔧 Configuration Reference
+
+Configuration is stored in `/etc/clawmem/config.env`.
+
+### Core Settings
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `PORT` | `8090` | The HTTP port the service listens on. |
+| `DB_PATH` | `/var/lib/clawmem/clawmem.db` | SQLite file path for storing raw memory text and metadata. |
+| `VECTOR_DB_PATH` | `/var/lib/clawmem/vectors` | Directory path for storing vector indices. |
+
+### Embedding Strategy
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `EMBEDDING_STRATEGY` | `cloud_first` | `cloud_first`: Try Cloudflare/OpenAI -> Fallback to Local.<br>`local_only`: Never call external APIs.<br>`accuracy_first`: Try OpenAI -> Cloudflare -> Local. |
+
+### Providers
+| Variable | Description |
+| :--- | :--- |
+| `CF_ACCOUNT_ID` | **Cloudflare Account ID**. Found in Workers & Pages overview. |
+| `CF_API_TOKEN` | **Cloudflare API Token**. Must have `Workers AI (Read)` permissions. |
+| `EMBED_API_BASE` | (Optional) OpenAI-compatible embedding endpoint. |
+| `EMBED_API_KEY` | (Optional) Key for the above endpoint. |
+
+### Advanced
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `DISABLE_LLM_SUMMARY` | `true` | If `false`, uses LLM to summarize long memories before storage (requires LLM config). |
 
 ---
 
@@ -75,25 +121,6 @@ The agent can now use natural language to store and retrieve memories:
 *   **Store**: "Remember that the server IP is 1.2.3.4" -> Calls `clawmem add`.
 *   **Recall**: "What was the server IP?" -> Calls `clawmem search`.
 
-## 🛠️ Operations Cheatsheet
+## 📄 License
 
-### Check Status
-```bash
-systemctl status clawmem
-```
-
-### View Logs
-```bash
-journalctl -u clawmem -f
-```
-
-### Restart Service
-(Required after changing config)
-```bash
-systemctl restart clawmem
-```
-
-### Edit Config
-```bash
-nano /etc/clawmem/config.env
-```
+MIT License. See [LICENSE](LICENSE) file.

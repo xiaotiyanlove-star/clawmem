@@ -2,6 +2,8 @@
 
 **低成本 AI Agent 的“主权记忆层”。**
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 ---
 
 ### 💡 为什么需要 ClawMem?
@@ -14,26 +16,37 @@
 
 **ClawMem** 是专为低配、主权级 AI Agent 设计的**极轻量、高韧性记忆层**。
 
-### 🧠 向量数据库的“魔法” (核心价值)
+### ✨ 核心价值 (尤其是省钱！)
 
-传统数据库使用 **关键词匹配**：
-*   *你搜*: "苹果" -> *结果*: "苹果派" (匹配字面)。
-*   *你搜*: "手机" -> *结果*: 无 (因为没匹配到字)。
+1.  **💸 节省 Token (上下文瘦身)**:
+    *   **没有记忆**: 你被迫把之前的几万字聊天记录全部塞进 Prompt，既慢又贵。
+    *   **有了 ClawMem**: 只需检索最相关的 3 条记忆片段。**大幅减少 Context Window 占用，直接降低 API 账单。**
+2.  **💰 零基建成本**: 利用 **Cloudflare Workers AI (免费层)** 获得高质量语义理解。
+3.  **🪶 羽量级占用**: 纯 Go 编写。无 Docker/Python。二进制仅 **~15MB**，内存占用 **<20MB**。
+4.  **🛡️ 究极稳健**: 即使断网或 API 挂了，服务也不会崩溃，而是自动降级运行。
 
-ClawMem 使用 **向量语义搜索**：
-*   它把文字转化成代表**含义**的数字坐标。
-*   *你搜*: "水果" -> *结果*: "苹果", "香蕉" (它懂分类)。
-*   *你搜*: "数码产品" -> *结果*: "手机", "笔记本" (它懂语境)。
+---
 
-**好处**：你的 Agent 不再是只有7秒记忆的金鱼。它能像人一样自然地联想、回忆上下文和偏好。
+## 🏗️ 架构图
 
-### ✨ 核心优势
-
-1.  **💰 零成本**: 利用 **Cloudflare Workers AI (免费层)** 获得高质量语义理解。
-2.  **🪶 羽量级**: 纯 Go 编写。无 Docker/Python。二进制仅 **~15MB**，内存占用 **<20MB**。
-3.  **🛡️ 究极稳健**:
-    *   **断网/限流?** 自动优雅降级，绝不让 Agent 崩溃。
-4.  **🧠 开箱即用**: 内置 OpenClaw **Skill**，复制即用。
+```mermaid
+graph TD
+    User[OpenClaw Agent] -->|存储/检索| API[HTTP API :8090]
+    API --> Service[核心服务]
+    Service -->|文本数据| SQLite[(SQLite DB\n原始文本)]
+    Service -->|获取向量| Manager[Embedding 管理器]
+    
+    subgraph "分级策略 (Tiered)"
+        Manager -->|Tier 1 (主力)| CF[Cloudflare Workers AI]
+        Manager -->|Tier 1 (备选)| OA[OpenAI 兼容接口]
+        Manager -->|Tier 0 (兜底)| Local[本地 Mock/轻量模型]
+    end
+    
+    Manager -->|向量数据| VectorDB[(向量库\nChromem-go)]
+    
+    style CF fill:#f9f,stroke:#333
+    style VectorDB fill:#bbf,stroke:#333
+```
 
 ---
 
@@ -47,16 +60,42 @@ cd clawmem
 sudo ./scripts/install.sh
 ```
 
-**脚本会交互式询问配置 (支持回车使用默认值):**
-*   服务端口 (默认: `8090`)
-*   数据库路径 (默认: `/var/lib/clawmem/...`)
-*   Cloudflare 账户信息 (Account ID & Token)
-
-脚本会自动完成编译、配置和服务启动。
+脚本会交互式询问配置，并自动完成编译和服务启动。
 
 ---
 
-## 🔌 OpenClaw 接入 (技能模式)
+## 🔧 配置项详解
+
+配置文件位于 `/etc/clawmem/config.env`。
+
+### 核心设置
+| 变量名 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `PORT` | `8090` | HTTP 服务监听的端口。 |
+| `DB_PATH` | `/var/lib/clawmem/clawmem.db` | SQLite 数据库路径，存储记忆原文。 |
+| `VECTOR_DB_PATH` | `/var/lib/clawmem/vectors` | 向量数据库索引文件的存储目录。 |
+
+### Embedding 策略
+| 变量名 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `EMBEDDING_STRATEGY` | `cloud_first` | `cloud_first`: 优先用 Cloudflare，失败转本地。<br>`local_only`: 强制只用本地。<br>`accuracy_first`: 优先用 OpenAI (需配置 Key)。 |
+
+### 服务商配置
+| 变量名 | 说明 |
+| :--- | :--- |
+| `CF_ACCOUNT_ID` | **Cloudflare Account ID**。在 Workers & Pages 概览页获取。 |
+| `CF_API_TOKEN` | **Cloudflare API Token**。需要有 `Workers AI (Read)` 权限。 |
+| `EMBED_API_BASE` | (可选) OpenAI 兼容的 Embedding 接口地址。 |
+| `EMBED_API_KEY` | (可选) 对应的 API Key。 |
+
+### 高级选项
+| 变量名 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `DISABLE_LLM_SUMMARY` | `true` | 是否禁用 LLM 自动摘要。开启需要配置 `LLM_*` 相关变量，会增加 Token 消耗但提升记忆质量。 |
+
+---
+
+## 🔌 OpenClaw 接入
 
 最推荐的方式，无需修改 OpenClaw 核心配置。
 
@@ -64,24 +103,6 @@ sudo ./scripts/install.sh
 2.  安装依赖: `pip install requests`。
 3.  **完成！** 你的 Agent 现在可以说：“帮我记住这个”。
 
-## 🛠️ 运维备忘录
+## 📄 许可证
 
-### 查看状态
-```bash
-systemctl status clawmem
-```
-
-### 查看日志
-```bash
-journalctl -u clawmem -f
-```
-
-### 重启服务
-```bash
-systemctl restart clawmem
-```
-
-### 修改配置
-```bash
-nano /etc/clawmem/config.env
-```
+MIT License. 详见 [LICENSE](../LICENSE) 文件。
