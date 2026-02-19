@@ -98,3 +98,51 @@ func (e *CloudflareEmbedder) Embed(ctx context.Context, text string) ([]float32,
 
 	return nil, fmt.Errorf("empty embedding from CF")
 }
+
+func (e *CloudflareEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	reqBody := map[string]interface{}{
+		"text": texts, // Workers AI 支持字符串数组
+	}
+	body, _ := json.Marshal(reqBody)
+
+	url := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%s/ai/run/%s", e.AccountID, e.Model)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+e.APIToken)
+
+	resp, err := e.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("CF API Error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		Result struct {
+			Data [][]float32 `json:"data"`
+		} `json:"result"`
+		Errors []interface{} `json:"errors"`
+	}
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		return nil, fmt.Errorf("parse error: %w body: %s", err, string(bodyBytes))
+	}
+
+	if len(result.Errors) > 0 {
+		return nil, fmt.Errorf("CF API Errors: %v", result.Errors)
+	}
+
+	if len(result.Result.Data) != len(texts) {
+		return nil, fmt.Errorf("CF returned %d embeddings, expected %d", len(result.Result.Data), len(texts))
+	}
+
+	return result.Result.Data, nil
+}

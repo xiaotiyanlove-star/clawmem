@@ -6,6 +6,8 @@ import "context"
 type Embedder interface {
 	// Name 返回 Embedder 的名称（用于日志和区分）
 	Name() string
-	// Embed 将文本转换为向量
+	// Embed 将单个文本转换为向量
 	Embed(ctx context.Context, text string) ([]float32, error)
+	// EmbedBatch 将多个文本转换为向量
+	EmbedBatch(ctx context.Context, texts []string) ([][]float32, error)
 }
