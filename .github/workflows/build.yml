@@ -1,0 +1,62 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Install dependencies
+        run: go mod tidy
+
+      - name: Build macOS Binary
+        run: |
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o release/clawmem-darwin-arm64 ./cmd/server/
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o release/clawmem-mcp-darwin-arm64 ./cmd/mcp-server/
+
+      - name: Build Linux Binary (Static)
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o release/clawmem-linux-amd64 ./cmd/server/
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o release/clawmem-mcp-linux-amd64 ./cmd/mcp-server/
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: clawmem-binaries
+          path: release/*
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: clawmem-binaries
+          path: release/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: rolling-${{ github.sha }}
+          name: Build ${{ github.sha }}
+          files: release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
