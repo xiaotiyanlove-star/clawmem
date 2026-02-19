@@ -18,16 +18,31 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # 2. Interactive Configuration
-echo -e "\n${YELLOW}[Configuration]${NC}"
+echo -e "\n${YELLOW}[Configuration] (Press Enter to use defaults)${NC}"
 
+# Port
 read -p "Service Port [8090]: " PORT
 PORT=${PORT:-8090}
 
-read -p "Cloudflare Account ID: " CF_ACCOUNT_ID
-read -p "Cloudflare API Token: " CF_API_TOKEN
+# Paths
+DEFAULT_DB_PATH="/var/lib/clawmem/clawmem.db"
+read -p "SQLite DB Path [$DEFAULT_DB_PATH]: " DB_PATH
+DB_PATH=${DB_PATH:-$DEFAULT_DB_PATH}
 
+DEFAULT_VECTOR_PATH="/var/lib/clawmem/vectors"
+read -p "Vector DB Path [$DEFAULT_VECTOR_PATH]: " VECTOR_DB_PATH
+VECTOR_DB_PATH=${VECTOR_DB_PATH:-$DEFAULT_VECTOR_PATH}
+
+# Cloudflare
+echo -e "\n${BLUE}--- Embedding Provider (Cloudflare Recommended) ---${NC}"
 read -p "Embedding Strategy (cloud_first/local_only) [cloud_first]: " STRATEGY
 STRATEGY=${STRATEGY:-cloud_first}
+
+if [ "$STRATEGY" = "cloud_first" ]; then
+    echo -e "${YELLOW}Tip: Get these from your Cloudflare Dashboard -> Workers AI${NC}"
+    read -p "Cloudflare Account ID: " CF_ACCOUNT_ID
+    read -p "Cloudflare API Token: " CF_API_TOKEN
+fi
 
 # 3. Build/Install Binary
 echo -e "\n${YELLOW}[Building Binary]${NC}"
@@ -43,14 +58,16 @@ fi
 
 # 4. Setup Directories & Config
 echo -e "\n${YELLOW}[Setting up Environment]${NC}"
-mkdir -p /var/lib/clawmem
+# Ensure directories exist based on user input
+mkdir -p "$(dirname "$DB_PATH")"
+mkdir -p "$VECTOR_DB_PATH"
 mkdir -p /etc/clawmem
 
 CONFIG_FILE="/etc/clawmem/config.env"
 cat > "$CONFIG_FILE" <<EOF
 PORT=$PORT
-DB_PATH=/var/lib/clawmem/clawmem.db
-VECTOR_DB_PATH=/var/lib/clawmem/vectors
+DB_PATH=$DB_PATH
+VECTOR_DB_PATH=$VECTOR_DB_PATH
 EMBEDDING_STRATEGY=$STRATEGY
 
 # Cloudflare Configuration
@@ -65,6 +82,9 @@ echo -e "${GREEN}Config saved to $CONFIG_FILE${NC}"
 # 5. Setup Systemd
 echo -e "\n${YELLOW}[Configuring Systemd]${NC}"
 SERVICE_FILE="/etc/systemd/system/clawmem.service"
+# Extract working directory from DB path for the service context
+WORKING_DIR=$(dirname "$DB_PATH")
+
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=ClawMem Memory Service
@@ -73,7 +93,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/var/lib/clawmem
+WorkingDirectory=$WORKING_DIR
 ExecStart=/usr/local/bin/clawmem
 Restart=always
 RestartSec=5
@@ -93,11 +113,10 @@ echo -e "${GREEN}🦞 ClawMem Installed & Started!${NC}"
 echo -e "=================================="
 echo -e "Status:  $(systemctl is-active clawmem)"
 echo -e "Port:    $PORT"
-echo -e "Data:    /var/lib/clawmem/"
+echo -e "DB Path: $DB_PATH"
 echo -e "\n${BLUE}Useful Commands:${NC}"
 echo -e "  View Logs:    ${YELLOW}journalctl -u clawmem -f${NC}"
 echo -e "  Restart:      ${YELLOW}systemctl restart clawmem${NC}"
-echo -e "  Stop:         ${YELLOW}systemctl stop clawmem${NC}"
 echo -e "  Edit Config:  ${YELLOW}nano /etc/clawmem/config.env && systemctl restart clawmem${NC}"
 echo -e "\nTest it now:"
 echo -e "  curl http://localhost:$PORT/health"
