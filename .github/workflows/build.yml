@@ -19,13 +19,14 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-          cache: true
+          cache: false # 禁用缓存以解决 /usr/bin/tar exit code 2 报错
 
       - name: Install dependencies
         run: go mod tidy
 
       - name: Build macOS Binary
         run: |
+          mkdir -p release
           CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o release/clawmem-darwin-arm64 ./cmd/server/
           CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o release/clawmem-mcp-darwin-arm64 ./cmd/mcp-server/
 
@@ -44,6 +45,8 @@ jobs:
     name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # 明确在 Job 级别授予写入权限
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - name: Download Artifacts
