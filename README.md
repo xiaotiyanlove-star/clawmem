@@ -2,20 +2,22 @@
 
 **ClawMem** is a lightweight, tiered memory service designed for OpenClaw agents running on resource-constrained environments (like low-cost VPS).
 
+[🇨🇳 中文文档 (Chinese Documentation)](docs/README_zh.md)
+
 ## 🌟 Key Features
 
 *   **Tiered Embedding Strategy**:
     *   **Tier 1 (Cloud)**: Uses **Cloudflare Workers AI** (Free Tier) or OpenAI for high-performance embeddings.
-    *   **Tier 0 (Local Mock/Fallback)**: A lightweight local fallback (Mock implementation in Alpha) ensures the service never crashes even if APIs are down. (Note: Production users should configure valid Cloudflare/OpenAI keys for semantic accuracy).
+    *   **Tier 0 (Local Mock/Fallback)**: A lightweight local fallback ensures the service never crashes even if APIs are down.
 *   **Lazy Loading**: Local resources are only allocated when absolutely necessary.
-*   **Zero CGO**: Built with pure Go libraries (`modernc.org/sqlite`, `chromem-go`), making deployment as simple as copying a single binary. No system dependencies required.
-*   **Differential Batching**: Smart caching system that only requests embeddings for new/modified text, saving API costs and time.
+*   **Zero CGO**: Built with pure Go libraries (`modernc.org/sqlite`, `chromem-go`), making deployment as simple as copying a single binary.
+*   **Differential Batching**: Smart caching system that only requests embeddings for new/modified text.
 
 ## 🚀 Deployment Guide
 
 ### 1. Installation
 
-**Option A: Build from Source (Recommended)**
+**Option A: Build from Source**
 
 ```bash
 # Requires Go 1.23+
@@ -25,92 +27,60 @@ go build -o clawmem ./cmd/server
 sudo mv clawmem /usr/local/bin/
 ```
 
-**Option B: Download Binary**
-Check the [Releases](https://github.com/xiaotiyanlove-star/clawmem/releases) page.
+### 2. Configuration
 
-### 2. Configuration (`/etc/clawmem/config.env`)
-
-Create the configuration file.
-
-**Crucial Step for Cloudflare**:
-You do **NOT** need to deploy a Worker script. You only need an API Token.
-1. Go to Cloudflare Dashboard -> User Profile -> API Tokens.
-2. Create Token -> Use template "Workers AI" (Read/Write).
-3. Copy the token to `CF_API_TOKEN` below.
-4. Get your Account ID from the Workers & Pages overview page.
+Create `/etc/clawmem/config.env`:
 
 ```bash
 PORT=8090
 DB_PATH=/var/lib/clawmem/clawmem.db
 VECTOR_DB_PATH=/var/lib/clawmem/vectors
 
-# Strategy: cloud_first (Recommended for VPS)
+# Strategy: cloud_first (Recommended)
 EMBEDDING_STRATEGY=cloud_first
 
-# Cloudflare Configuration
-# Account ID: From your Cloudflare URL or Workers dashboard
+# Cloudflare Configuration (Free Tier - Workers AI)
+# Get Account ID & API Token (Template: Workers AI) from Cloudflare Dashboard
 CF_ACCOUNT_ID=your_account_id
-# API Token: Needs "Workers AI" permission
 CF_API_TOKEN=your_api_token
 
 # Optional: LLM for summarization
-LLM_API_BASE=https://openrouter.ai/api/v1
-LLM_API_KEY=
-LLM_MODEL=stepfun/step-3.5-flash
 DISABLE_LLM_SUMMARY=true
 ```
 
-### 3. Systemd Service
-
-Create `/etc/systemd/system/clawmem.service`:
-
-```ini
-[Unit]
-Description=ClawMem Memory Service
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/var/lib/clawmem
-ExecStart=/usr/local/bin/clawmem
-Restart=always
-RestartSec=5
-EnvironmentFile=/etc/clawmem/config.env
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start:
+### 3. Run as Service
 
 ```bash
+# Copy systemd file
+sudo cp deployment/clawmem.service /etc/systemd/system/
 sudo mkdir -p /var/lib/clawmem
 sudo systemctl enable --now clawmem
 ```
 
-## 🔌 OpenClaw Integration
+*(Note: If `deployment/clawmem.service` is missing, refer to the [Chinese Docs](docs/README_zh.md) for the full content)*
 
-In your OpenClaw tool definition (or MCP config), connect to the HTTP API:
+## 🔌 OpenClaw Integration (Agent Skills)
 
-*   **Endpoint**: `http://localhost:8090` (or your VPS IP)
-*   **API Endpoints**:
-    *   `POST /api/v1/memo`: Store a memory.
-        ```json
-        { "user_id": "user", "content": "I like tech.", "tags": ["preference"] }
-        ```
-    *   `GET /api/v1/memo/search?q=tech&user_id=user`: Retrieve memories.
+We recommend using the **Skill Mode** to integrate with OpenClaw without modifying the core configuration.
+
+### Setup
+
+1.  Copy the `skills/clawmem` directory to your OpenClaw skills folder (e.g., `/root/.openclaw/workspace/skills/`).
+2.  Install python dependencies: `pip install requests`.
+
+### Usage in Agent
+
+The agent can now use natural language to store and retrieve memories:
+
+*   **Store**: "Remember that the server IP is 1.2.3.4" -> Calls `clawmem add`.
+*   **Recall**: "What was the server IP?" -> Calls `clawmem search`.
+
+See `skills/clawmem/SKILL.md` for details.
 
 ## 🛠️ FAQ
 
 **Q: Do I need to deploy a Cloudflare Worker script?**
-A: **No.** ClawMem communicates directly with the Cloudflare Workers AI **REST API**. You only need an API Token with the correct permissions.
+A: **No.** ClawMem uses the standard Cloudflare Workers AI REST API. You only need a valid API Token.
 
-**Q: What happens if my Cloudflare token is invalid?**
-A: ClawMem will detect the failure during its health check or request, mark the provider as "down," and automatically fall back to the Local Tier (currently a Mock/Hash embedding in Alpha to guarantee uptime on low-resource machines).
-
-**Q: Does it support backups?**
-A: Yes. All data is stored in `/var/lib/clawmem/clawmem.db`. You can simply copy this file to backup your memories.
-
-**Q: Why "Mock Local Embedder"?**
-A: Running a real BERT model locally requires ~200MB-500MB RAM. On a 2.4G VPS running OpenClaw + Docker, this risks OOM. The Alpha version uses a deterministic hash embedding for fallback to ensure the service *never* crashes, even if search accuracy drops during an API outage. For production, please configure a valid Cloudflare/OpenAI key.
+**Q: Why Mock Embedder?**
+A: To prevent OOM on 2GB RAM servers when external APIs fail. Production users should ensure Cloudflare/OpenAI keys are valid.

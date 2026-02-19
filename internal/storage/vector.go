@@ -70,6 +70,15 @@ func (v *VectorStore) Query(ctx context.Context, queryText string, topK int, whe
 		topK = 5
 	}
 
+	// Fix: Ensure topK does not exceed total document count
+	count := v.collection.Count()
+	if count == 0 {
+		return []chromem.Result{}, nil
+	}
+	if topK > count {
+		topK = count
+	}
+
 	var where map[string]string
 	if len(whereFilter) > 0 {
 		where = whereFilter
