@@ -1,0 +1,25 @@
+# 二进制产物
+clawmem
+clawmem-linux-*
+
+# 数据目录
+data/
+
+# 环境变量
+.env
+
+# Go 构建缓存
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 克隆的参考仓库
+MemOS/
+qmd/
+
+# macOS
+.DS_Store
