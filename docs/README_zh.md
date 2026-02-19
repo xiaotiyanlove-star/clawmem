@@ -2,6 +2,8 @@
 
 **低成本 AI Agent 的“主权记忆层”。**
 
+[English Documentation](../README.md)
+
 ---
 
 ### 💡 为什么需要 ClawMem?
@@ -25,125 +27,69 @@
 
 ---
 
-## 🌟 核心特性
+## ⚡ 一键部署 (One-Click)
 
-*   **分级 Embedding 策略**:
-    *   **Tier 1 (云端)**: 优先使用 **Cloudflare Workers AI** (免费额度) 或 OpenAI，获取高质量向量。
-    *   **Tier 0 (本地兜底)**: 当云端 API 不可用时，自动降级到本地 Mock 模式（伪向量），确保服务永不崩溃。
-*   **延迟加载 (Lazy Loading)**: 本地模型仅在必要时加载，正常运行时节省 ~200MB 内存。
-*   **零 CGO**: 纯 Go 实现（含 SQLite），部署只需复制一个二进制文件。
-*   **差量批处理**: 智能缓存未命中的文本，大幅减少 API 开销。
-
-## 🚀 部署指南
-
-### 1. 安装
-
-**源码编译 (推荐)**
-
-需要 Go 1.23+:
+如果你有 `root` 权限和 `go` 环境，只需运行：
 
 ```bash
 git clone https://github.com/xiaotiyanlove-star/clawmem
 cd clawmem
-go build -o clawmem ./cmd/server
-sudo mv clawmem /usr/local/bin/
+sudo ./scripts/install.sh
 ```
 
-### 2. 配置 (`/etc/clawmem/config.env`)
+脚本会交互式询问你的配置（Cloudflare Token 等），并自动配置 Systemd 服务。
 
-创建配置文件，建议优先使用 Cloudflare 免费层。
+---
 
-**如何获取 Cloudflare 配置：**
-1.  登录 Cloudflare Dashboard -> User Profile -> API Tokens。
-2.  创建 Token -> 选择模板 **"Workers AI"** (Read/Write)。
-3.  复制 Token 到 `CF_API_TOKEN`。
-4.  在 Workers 页面复制 Account ID。
+## 🔧 配置详解
 
-```bash
-# 端口
-PORT=8090
-# 数据存储路径
-DB_PATH=/var/lib/clawmem/clawmem.db
-VECTOR_DB_PATH=/var/lib/clawmem/vectors
+配置文件位于 `/etc/clawmem/config.env`。
 
-# 策略: cloud_first (推荐), accuracy_first, 或 local_only
-EMBEDDING_STRATEGY=cloud_first
+| 配置项 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `PORT` | `8090` | HTTP 服务监听端口 |
+| `DB_PATH` | `/var/lib/clawmem/clawmem.db` | SQLite 数据库路径 (存储原始记忆文本) |
+| `VECTOR_DB_PATH` | `/var/lib/clawmem/vectors` | 向量数据库路径 (存储 Embedding) |
+| `EMBEDDING_STRATEGY` | `cloud_first` | `cloud_first` (优先云端), `local_only` (仅本地), `accuracy_first` (优先 OpenAI) |
+| `CF_ACCOUNT_ID` | - | Cloudflare 账户 ID (Dashboard 首页获取) |
+| `CF_API_TOKEN` | - | Cloudflare API Token (需有 `Workers AI` 权限) |
+| `DISABLE_LLM_SUMMARY` | `true` | 是否禁用 LLM 自动摘要 (开启需配置 LLM_*) |
 
-# Cloudflare 配置
-CF_ACCOUNT_ID=你的AccountID
-CF_API_TOKEN=你的APIToken
+---
 
-# 可选: LLM 摘要配置
-DISABLE_LLM_SUMMARY=true
-```
-
-### 3. 设置 Systemd 服务
-
-创建文件 `/etc/systemd/system/clawmem.service`:
-
-```ini
-[Unit]
-Description=ClawMem Memory Service
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/var/lib/clawmem
-ExecStart=/usr/local/bin/clawmem
-Restart=always
-RestartSec=5
-EnvironmentFile=/etc/clawmem/config.env
-
-[Install]
-WantedBy=multi-user.target
-```
-
-启动服务：
-
-```bash
-sudo mkdir -p /var/lib/clawmem
-sudo systemctl enable --now clawmem
-```
-
-## 🔌 OpenClaw 接入 (技能模式)
+## 🔌 OpenClaw 接入
 
 这是最推荐的接入方式，不需要修改 OpenClaw 核心配置。
 
-### 安装技能
+1.  将 `skills/clawmem` 文件夹复制到你的 OpenClaw 技能目录。
+2.  安装依赖: `pip install requests`。
+3.  **完成！** 你的 Agent 现在可以说：“帮我记住这个”。
 
-将本项目中的 `skills/clawmem` 文件夹复制到你的 OpenClaw 技能目录（例如 `/root/.openclaw/workspace/skills/`）。
+## 🛠️ 运维备忘录 (Cheatsheet)
 
-目录结构应如下：
-```text
-skills/
-  └── clawmem/
-      ├── SKILL.md
-      └── client.py
-```
-
-### 依赖安装
-
+### 查看运行状态
 ```bash
-pip install requests
+systemctl status clawmem
 ```
 
-### 如何使用
+### 查看实时日志
+```bash
+journalctl -u clawmem -f
+```
 
-Agent 现在可以通过自然语言调用记忆功能：
+### 重启服务
+(修改配置后需要重启)
+```bash
+systemctl restart clawmem
+```
 
-*   **存储**: “帮我记住：Racknerd 的 SSH 端口是 11022”
-    *   自动调用 `python client.py add ...`
-*   **回忆**: “我之前存的 VPS 端口是多少？”
-    *   自动调用 `python client.py search ...`
+### 停止服务
+```bash
+systemctl stop clawmem
+```
 
-## 🛠️ 常见问题 (FAQ)
-
-**Q: 需要部署 Cloudflare Worker 脚本吗？**
-A: **不需要。** ClawMem 直接调用 Cloudflare Workers AI 的 REST API。你只需要申请一个 Token。
-
-**Q: 为什么本地兜底是 Mock 模式？**
-A: 在 2GB 内存的 VPS 上跑完整的 BERT 模型容易导致 OOM（内存溢出）。为了保证 OpenClaw 主进程的安全，我们默认在 API 挂掉时使用确定性哈希生成伪向量。这保证了服务活着，虽然此时搜索精度会下降。
-
-**Q: 数据库怎么备份？**
-A: 整个数据库就是一个文件 `/var/lib/clawmem/clawmem.db`。你可以用 cron 任务定期把它复制到你的 OneDrive 挂载目录。
+### 备份数据
+所有记忆都在一个文件里，拷贝走即可：
+```bash
+cp /var/lib/clawmem/clawmem.db /path/to/backup/
+```

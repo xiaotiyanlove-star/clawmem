@@ -27,60 +27,38 @@ Running a smart AI Agent usually requires a **Vector Database** (like Chroma/Qdr
 
 ---
 
-## 🌟 Key Features
+## ⚡ One-Click Deployment
 
-*   **Tiered Embedding Strategy**:
-    *   **Tier 1 (Cloud)**: Uses **Cloudflare Workers AI** (Free Tier) or OpenAI for high-performance embeddings.
-    *   **Tier 0 (Local Mock/Fallback)**: A lightweight local fallback ensures the service never crashes even if APIs are down.
-*   **Lazy Loading**: Local resources are only allocated when absolutely necessary.
-*   **Zero CGO**: Built with pure Go libraries (`modernc.org/sqlite`, `chromem-go`), making deployment as simple as copying a single binary.
-*   **Differential Batching**: Smart caching system that only requests embeddings for new/modified text.
-
-## 🚀 Deployment Guide
-
-### 1. Installation
-
-**Option A: Build from Source**
+If you have `root` access and `go` installed:
 
 ```bash
-# Requires Go 1.23+
 git clone https://github.com/xiaotiyanlove-star/clawmem
 cd clawmem
-go build -o clawmem ./cmd/server
-sudo mv clawmem /usr/local/bin/
+sudo ./scripts/install.sh
 ```
 
-### 2. Configuration
+The script will:
+1. Build the binary.
+2. Ask for your Cloudflare credentials.
+3. Configure and start the `systemd` service.
 
-Create `/etc/clawmem/config.env`:
+---
 
-```bash
-PORT=8090
-DB_PATH=/var/lib/clawmem/clawmem.db
-VECTOR_DB_PATH=/var/lib/clawmem/vectors
+## 🔧 Configuration Reference
 
-# Strategy: cloud_first (Recommended)
-EMBEDDING_STRATEGY=cloud_first
+Configuration is stored in `/etc/clawmem/config.env`.
 
-# Cloudflare Configuration (Free Tier - Workers AI)
-# Get Account ID & API Token (Template: Workers AI) from Cloudflare Dashboard
-CF_ACCOUNT_ID=your_account_id
-CF_API_TOKEN=your_api_token
+| Key | Default | Description |
+| :--- | :--- | :--- |
+| `PORT` | `8090` | HTTP Service Port |
+| `DB_PATH` | `/var/lib/clawmem/clawmem.db` | Path to SQLite DB (Raw Text) |
+| `VECTOR_DB_PATH` | `/var/lib/clawmem/vectors` | Path to Vector DB (Embeddings) |
+| `EMBEDDING_STRATEGY` | `cloud_first` | `cloud_first`, `local_only`, or `accuracy_first` |
+| `CF_ACCOUNT_ID` | - | Cloudflare Account ID |
+| `CF_API_TOKEN` | - | Cloudflare API Token (Requires `Workers AI` permissions) |
+| `DISABLE_LLM_SUMMARY` | `true` | Set to `false` to enable LLM summarization (Requires `LLM_*` vars) |
 
-# Optional: LLM for summarization
-DISABLE_LLM_SUMMARY=true
-```
-
-### 3. Run as Service
-
-```bash
-# Copy systemd file
-sudo cp deployment/clawmem.service /etc/systemd/system/
-sudo mkdir -p /var/lib/clawmem
-sudo systemctl enable --now clawmem
-```
-
-*(Note: If `deployment/clawmem.service` is missing, refer to the [Chinese Docs](docs/README_zh.md) for the full content)*
+---
 
 ## 🔌 OpenClaw Integration (Agent Skills)
 
@@ -100,10 +78,26 @@ The agent can now use natural language to store and retrieve memories:
 
 See `skills/clawmem/SKILL.md` for details.
 
-## 🛠️ FAQ
+## 🛠️ Operations Cheatsheet
 
-**Q: Do I need to deploy a Cloudflare Worker script?**
-A: **No.** ClawMem uses the standard Cloudflare Workers AI REST API. You only need a valid API Token.
+### Check Status
+```bash
+systemctl status clawmem
+```
 
-**Q: Why Mock Embedder?**
-A: To prevent OOM on 2GB RAM servers when external APIs fail. Production users should ensure Cloudflare/OpenAI keys are valid.
+### View Logs
+```bash
+journalctl -u clawmem -f
+```
+
+### Restart Service
+(Required after changing config)
+```bash
+systemctl restart clawmem
+```
+
+### Backup Data
+All memory data is in a single file. Just copy it:
+```bash
+cp /var/lib/clawmem/clawmem.db /path/to/backup/
+```
