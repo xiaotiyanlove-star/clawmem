@@ -1,0 +1,38 @@
+{
+    "name": "clawmem",
+    "description": "Integration with ClawMem for long-term memory storage and retrieval.",
+    "commands": [
+        {
+            "name": "add_memory",
+            "description": "Store a new memory or fact into long-term storage.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": "The information to remember."
+                    }
+                },
+                "required": [
+                    "content"
+                ]
+            }
+        },
+        {
+            "name": "search_memory",
+            "description": "Retrieve relevant memories based on a query.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search term or question to find memories about."
+                    }
+                },
+                "required": [
+                    "query"
+                ]
+            }
+        }
+    ]
+}
