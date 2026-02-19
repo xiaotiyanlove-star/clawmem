@@ -1,8 +1,31 @@
 # ClawMem 🦞
 
-**ClawMem** is a lightweight, tiered memory service designed for OpenClaw agents running on resource-constrained environments (like low-cost VPS).
+**The "Sovereign Memory" for Low-Cost AI Agents.**
 
 [🇨🇳 中文文档 (Chinese Documentation)](docs/README_zh.md)
+
+---
+
+### 💡 Why ClawMem?
+
+Running a smart AI Agent usually requires a **Vector Database** (like Chroma/Qdrant) and an **Embedding Model** (like BERT). But for personal agents running on **cheap VPS ($5/mo, 1-2GB RAM)**, this is a nightmare:
+
+*   ❌ **Heavy**: Docker containers and Python-based vector DBs eat up RAM (500MB+).
+*   ❌ **Slow**: Running local embedding models on a weak CPU makes the agent unresponsive.
+*   ❌ **Complex**: You spend more time managing infrastructure than building your agent.
+
+**ClawMem is the antidote.** It is designed to be the **lightest, most resilient memory layer** for your sovereign AI agent.
+
+### ✨ What It Gives You
+
+1.  **💰 Zero Cost, High Intelligence**: Use **Cloudflare Workers AI (Free Tier)** to get GPT-4 level semantic understanding without paying a dime or using your VPS CPU.
+2.  **🪶 Featherlight Footprint**: Written in pure Go. No Docker, no Python, no CGO. The binary is **~15MB** and idle memory usage is **<20MB**.
+3.  **🛡️ Bulletproof Resilience**:
+    *   **Cloud Down?** It automatically falls back to a local model (or a deterministic mock on ultra-low-spec hardware).
+    *   **API Rate Limit?** It degrades gracefully instead of crashing your agent.
+4.  **🧠 "Plug-and-Play" for OpenClaw**: Comes with a ready-to-use **Skill**. Just copy one folder, and your agent can instantly "Remember" and "Recall".
+
+---
 
 ## 🌟 Key Features
 
