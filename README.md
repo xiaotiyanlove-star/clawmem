@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Report Card](https://goreportcard.com/badge/github.com/xiaotiyanlove-star/clawmem)](https://goreportcard.com/report/github.com/xiaotiyanlove-star/clawmem)
 
-[🇨🇳 中文文档 (Chinese Documentation)](docs/README_zh.md)
+[🇨🇳 中文文档 (Chinese Documentation)](README_CN.md)
 
 ---
 
@@ -42,9 +42,9 @@ graph TD
     Service -->|Get Vector| Manager[Embedding Manager]
     
     subgraph "Tiered Strategies"
-        Manager -->|Tier 1 (Priority)| CF[Cloudflare Workers AI]
-        Manager -->|Tier 1 (Alt)| OA[OpenAI Compatible]
-        Manager -->|Tier 0 (Fallback)| Local[Local Mock/Lite Model]
+        Manager -->|"Tier 1 (Priority)"| CF[Cloudflare Workers AI]
+        Manager -->|"Tier 1 (Alt)"| OA[OpenAI Compatible]
+        Manager -->|"Tier 0 (Fallback)"| Local[Local Mock/Lite Model]
     end
     
     Manager -->|Vector Data| VectorDB[(Vector Store\nChromem-go)]
@@ -124,3 +124,13 @@ The agent can now use natural language to store and retrieve memories:
 ## 📄 License
 
 MIT License. See [LICENSE](LICENSE) file.
+
+## Acknowledgements
+
+This project **references and draws inspiration from the architectural design of [MemOS](https://github.com/MemTensor/MemOS)** (GitHub - MemTensor/MemOS: AI memory OS for LLM and Agent systems(moltbot,clawdbot,openclaw), enablin).
+
+MemOS is an excellent LLM memory operating system.
+
+ClawMem is a lightweight implementation and adaptation based on MemOS design philosophy, customized for the OpenClaw agent ecosystem.
+
+Thanks to the MemTensor team for their outstanding work.
