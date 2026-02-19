@@ -36,7 +36,7 @@ func main() {
 	}
 
 	// 初始化核心服务
-	service := core.NewMemoryService(sqlStore, vectorStore, llmClient)
+	service := core.NewMemoryService(cfg, sqlStore, vectorStore, llmClient)
 
 	// 创建 MCP Server
 	s := server.NewMCPServer(

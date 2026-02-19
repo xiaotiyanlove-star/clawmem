@@ -35,7 +35,7 @@ func main() {
 	}
 
 	// 初始化核心服务
-	service := core.NewMemoryService(sqlStore, vectorStore, llmClient)
+	service := core.NewMemoryService(cfg, sqlStore, vectorStore, llmClient)
 
 	// 初始化 HTTP 路由
 	gin.SetMode(gin.ReleaseMode)

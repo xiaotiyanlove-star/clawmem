@@ -26,6 +26,9 @@ type Config struct {
 	LLMAPIKey  string
 	LLMModel   string
 
+	// 是否禁用 LLM 摘要（默认 true 以节省成本）
+	DisableLLMSummary bool
+
 	// 向量维度（需与 Embedding 模型输出一致）
 	EmbedDimension int
 }
@@ -33,18 +36,20 @@ type Config struct {
 // Load 从环境变量中加载配置
 func Load() *Config {
 	dim, _ := strconv.Atoi(getEnv("EMBED_DIMENSION", "1024"))
+	disableSummary, _ := strconv.ParseBool(getEnv("DISABLE_LLM_SUMMARY", "true"))
 
 	return &Config{
-		Port:           getEnv("PORT", "8080"),
-		DBPath:         getEnv("DB_PATH", "./data/clawmem.db"),
-		VectorDBPath:   getEnv("VECTOR_DB_PATH", "./data/vectors"),
-		EmbedAPIBase:   getEnv("EMBED_API_BASE", "https://api.openai.com/v1"),
-		EmbedAPIKey:    getEnv("EMBED_API_KEY", ""),
-		EmbedModel:     getEnv("EMBED_MODEL", "text-embedding-3-small"),
-		LLMAPIBase:     getEnv("LLM_API_BASE", "https://api.openai.com/v1"),
-		LLMAPIKey:      getEnv("LLM_API_KEY", ""),
-		LLMModel:       getEnv("LLM_MODEL", "gpt-4o-mini"),
-		EmbedDimension: dim,
+		Port:              getEnv("PORT", "8080"),
+		DBPath:            getEnv("DB_PATH", "./data/clawmem.db"),
+		VectorDBPath:      getEnv("VECTOR_DB_PATH", "./data/vectors"),
+		EmbedAPIBase:      getEnv("EMBED_API_BASE", "https://api.openai.com/v1"),
+		EmbedAPIKey:       getEnv("EMBED_API_KEY", ""),
+		EmbedModel:        getEnv("EMBED_MODEL", "text-embedding-3-small"),
+		LLMAPIBase:        getEnv("LLM_API_BASE", "https://api.openai.com/v1"),
+		LLMAPIKey:         getEnv("LLM_API_KEY", ""),
+		LLMModel:          getEnv("LLM_MODEL", "gpt-4o-mini"),
+		DisableLLMSummary: disableSummary,
+		EmbedDimension:    dim,
 	}
 }
 

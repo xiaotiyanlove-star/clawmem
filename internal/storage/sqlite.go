@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/xiaotiyanlove-star/clawmem/internal/model"
+	_ "modernc.org/sqlite"
 )
 
 // SQLiteStore 封装 SQLite 数据库操作
@@ -26,7 +26,7 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("创建数据库目录失败: %w", err)
 	}
 
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
 		return nil, fmt.Errorf("打开数据库失败: %w", err)
 	}

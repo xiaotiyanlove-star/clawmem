@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/xiaotiyanlove-star/clawmem/config"
 	"github.com/xiaotiyanlove-star/clawmem/internal/llm"
 	"github.com/xiaotiyanlove-star/clawmem/internal/model"
 	"github.com/xiaotiyanlove-star/clawmem/internal/storage"
@@ -14,14 +15,16 @@ import (
 
 // MemoryService 核心记忆服务
 type MemoryService struct {
+	cfg         *config.Config
 	sqlStore    *storage.SQLiteStore
 	vectorStore *storage.VectorStore
 	llmClient   *llm.Client
 }
 
 // NewMemoryService 创建记忆服务实例
-func NewMemoryService(sqlStore *storage.SQLiteStore, vectorStore *storage.VectorStore, llmClient *llm.Client) *MemoryService {
+func NewMemoryService(cfg *config.Config, sqlStore *storage.SQLiteStore, vectorStore *storage.VectorStore, llmClient *llm.Client) *MemoryService {
 	return &MemoryService{
+		cfg:         cfg,
 		sqlStore:    sqlStore,
 		vectorStore: vectorStore,
 		llmClient:   llmClient,
@@ -34,9 +37,9 @@ func (s *MemoryService) AddMemory(ctx context.Context, req *model.AddMemoryReque
 	id := uuid.New().String()
 	now := time.Now().UTC()
 
-	// 使用 LLM 提取摘要（如果内容较长）
+	// 使用 LLM 提取摘要（如果内容较长且未禁用）
 	summary := ""
-	if len(req.Content) > 200 {
+	if !s.cfg.DisableLLMSummary && len(req.Content) > 200 {
 		var err error
 		summary, err = s.llmClient.Summarize(ctx, req.Content)
 		if err != nil {
