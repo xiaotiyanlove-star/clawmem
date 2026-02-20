@@ -37,7 +37,7 @@ type AddMemoryRequest struct {
 type SearchMemoryRequest struct {
 	UserID    string `json:"user_id" form:"user_id" binding:"required"`
 	Query     string `json:"query" form:"query" binding:"required"`
-	TopK      int    `json:"top_k" form:"top_k"`
+	TopK      int    `json:"top_k,string" form:"top_k,default=5"` // Add default tag and allow string unmarshaling if passed as JSON
 	SessionID string `json:"session_id" form:"session_id,omitempty"`
 }
 

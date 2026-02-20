@@ -13,6 +13,9 @@ def add_memory(content: str, user_id: str = None):
     :param content: The content to remember.
     :param user_id: (Optional) The unique user ID or session ID.
     """
+    if not content or not content.strip():
+        return "Failed to store memory: content cannot be empty."
+
     url = f"{CLAWMEM_URL}/api/v1/memo"
     payload = {
         "user_id": user_id or DEFAULT_USER_ID,
@@ -23,6 +26,10 @@ def add_memory(content: str, user_id: str = None):
         resp = requests.post(url, json=payload, timeout=10)
         resp.raise_for_status()
         return f"Memory stored successfully. ID: {resp.json().get('data', {}).get('id')}"
+    except requests.exceptions.HTTPError as e:
+        if e.response is not None:
+             return f"Failed to store memory (HTTP {e.response.status_code}): {e.response.text}"
+        return f"Failed to store memory: {str(e)}"
     except Exception as e:
         return f"Failed to store memory: {str(e)}"
 
@@ -32,6 +39,9 @@ def search_memory(query: str, user_id: str = None):
     :param query: The search query.
     :param user_id: (Optional) The unique user ID or session ID.
     """
+    if not query or not query.strip():
+        return "Failed to search memory: query cannot be empty."
+
     url = f"{CLAWMEM_URL}/api/v1/memo/search"
     params = {
         "user_id": user_id or DEFAULT_USER_ID,
