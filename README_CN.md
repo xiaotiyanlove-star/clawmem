@@ -36,6 +36,7 @@
 - 🔌 **MCP 协议** — 内置 MCP Server，可无缝接入 Claude Desktop、OpenClaw 等 MCP 客户端。
 - 🧠 **延迟加载** — 本地模型按需加载，Cloud 模式下保持极低内存占用。
 - 🏥 **启动自检** — 启动时自动检测 API 可用性，不可用的 Provider 立即标记为 DOWN，避免运行时超时。
+- 💤 **梦境引擎 (Dream)** — 后台自动整合记忆。将碎片化的聊天记录压缩为高质量、无冲突的事实依据 (基于 LLM)。
 
 ---
 
@@ -50,6 +51,10 @@ graph TD
     Service -->|文本数据| SQLite[(SQLite DB<br/>原始文本 + 缓存)]
     Service -->|获取向量| Manager[Embedding 管理器]
     
+    Dream[💤 梦境引擎<br/>后台整合任务] -.->|读取/压缩| SQLite
+    Dream -.->|存储精华记忆| Service
+    Dream -.->|调用提炼| LLM[🧠 LLM 服务商]
+    
     subgraph "多级 Embedding 策略"
         Manager -->|"Tier 1 · 主力"| CF[☁️ Cloudflare Workers AI<br/>免费 · 快速]
         Manager -->|"Tier 1 · 备选"| OA[🤖 OpenAI 兼容<br/>SiliconFlow 等]
@@ -62,6 +67,8 @@ graph TD
     style OA fill:#ffc,stroke:#333
     style Local fill:#cfc,stroke:#333
     style VectorDB fill:#bbf,stroke:#333
+    style Dream fill:#fcf,stroke:#333,stroke-dasharray: 5 5
+    style LLM fill:#ff9,stroke:#333
 ```
 
 ---
@@ -146,6 +153,52 @@ sudo ./scripts/install.sh
 | `LLM_API_KEY` | — | LLM API 密钥 |
 | `LLM_MODEL` | `gpt-4o-mini` | 模型名称 |
 | `DISABLE_LLM_SUMMARY` | `true` | 设为 `false` 启用 LLM 记忆摘要功能 |
+
+### 🌙 梦境引擎 (记忆整合)
+
+Dream (梦境) 是一个可选的后台进程，它会定期将碎片化的记忆整合成简洁、高质量的条目 —— 就像人类大脑在睡眠中整理记忆一样。
+
+**默认禁用。** 设置 `DREAM_ENABLED=true` 开启。禁用时对现有功能零性能损耗。
+
+| 变量名 | 默认值 | 说明 |
+| :--- | :--- | :--- |
+| `DREAM_ENABLED` | `false` | 是否启用 Dream 记忆整合功能。 |
+| `DREAM_INTERVAL` | `24h` | 执行周期（如 `12h`、`6h`、`24h`）。 |
+| `DREAM_WINDOW` | `24h` | 每次处理多久以内的原始记忆。 |
+| `DREAM_MIN_COUNT` | `10` | 触发整合的最少记忆条数（太少不执行，省 Token）。 |
+| `DREAM_MAX_ITEMS` | `200` | 单次处理的最大记忆数（防 Token 爆炸）。 |
+| `DREAM_LLM_BASE` | *(同 LLM_API_BASE)* | 可独立配置一个更便宜的模型用作后台整合。 |
+| `DREAM_LLM_KEY` | *(同 LLM_API_KEY)* | 对应的 API 密钥。 |
+| `DREAM_LLM_MODEL` | *(同 LLM_MODEL)* | 对应的模型名称 (如 `gemini-2.0-flash`)。 |
+| `DREAM_PROMPT` | *(内置)* | 自定义系统提示词。 |
+
+#### Dream 是如何工作的
+
+```
+┌─────────────────────────────────────────────────────┐
+│  每隔 DREAM_INTERVAL (如 24小时)                    │
+│                                                     │
+│  1. 拉取过去 DREAM_WINDOW 内的活跃记忆碎片          │
+│  2. 若条数 < DREAM_MIN_COUNT，跳过                  │
+│  3. 发送给 LLM："请整合并提炼这些记忆"              │
+│  4. LLM 返回无冲突、简洁的事实清单                  │
+│  5. 存入新的“精华记忆”（带特定 Tag，可检索）       │
+│  6. 将原始碎片标记为“已整合”（软删除/归档）         │
+└─────────────────────────────────────────────────────┘
+```
+
+**解决的核心痛点：**
+- **记忆冲突**：如果昨天说“我喜欢A”，今天说“我讨厌A”，Dream 会保留最新偏好并解决冲突。
+- **信息噪音**：将 500 条闲聊记录浓缩为 5 条高质量事实，大幅提升检索质量。
+- **Token 浪费**：更少、更干净的记忆 = 每次检索消耗的 Token 更少，大模型回复更准。
+
+#### 手动触发
+
+您可以通过 API 随时手动触发一次 Dream 周期：
+
+```bash
+curl -X POST http://localhost:8090/api/v1/dream/trigger
+```
 
 ---
 

@@ -36,6 +36,7 @@ Running a smart AI Agent usually requires a **Vector Database** and an **Embeddi
 - 🔌 **MCP Protocol** — Built-in MCP server for seamless integration with Claude Desktop, OpenClaw, and other MCP clients.
 - 🧠 **Lazy Loading** — Local model loads only when needed, keeping memory footprint minimal during cloud-first operation.
 - 🏥 **Health Checks** — Automatic provider health checks on startup. Unhealthy providers are marked down immediately.
+- 💤 **Dream Engine** — Background auto-consolidation of memories. Compresses noisy chat logs into high-quality, conflict-resolved facts via LLM.
 
 ---
 
@@ -50,6 +51,10 @@ graph TD
     Service -->|Text Data| SQLite[(SQLite DB<br/>Raw Text + Cache)]
     Service -->|Get Vector| Manager[Embedding Manager]
     
+    Dream[💤 Dream Engine<br/>Background Task] -.->|Read/Compress| SQLite
+    Dream -.->|Store Consolidated| Service
+    Dream -.->|Generate| LLM[🧠 LLM Provider]
+    
     subgraph "Multi-Tier Embedding Strategy"
         Manager -->|"Tier 1 · Priority"| CF[☁️ Cloudflare Workers AI<br/>Free · Fast]
         Manager -->|"Tier 1 · Alternate"| OA[🤖 OpenAI Compatible<br/>SiliconFlow etc.]
@@ -62,6 +67,8 @@ graph TD
     style OA fill:#ffc,stroke:#333
     style Local fill:#cfc,stroke:#333
     style VectorDB fill:#bbf,stroke:#333
+    style Dream fill:#fcf,stroke:#333,stroke-dasharray: 5 5
+    style LLM fill:#ff9,stroke:#333
 ```
 
 ---
