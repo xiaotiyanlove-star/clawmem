@@ -2,6 +2,13 @@ package model
 
 import "time"
 
+// 记忆状态常量
+const (
+	StatusActive       = "active"       // 正常活跃记忆
+	StatusConsolidated = "consolidated" // 已被 Dream 整合归档
+	StatusDream        = "dream"        // Dream 生成的精华记忆
+)
+
 // Memory 记忆条目数据结构
 type Memory struct {
 	ID        string    `json:"id"`
@@ -9,8 +16,9 @@ type Memory struct {
 	SessionID string    `json:"session_id,omitempty"`
 	Content   string    `json:"content"`
 	Summary   string    `json:"summary,omitempty"`
-	Source    string    `json:"source,omitempty"` // 来源标识，如 "chat", "document"
+	Source    string    `json:"source,omitempty"` // 来源标识，如 "chat", "document", "dream"
 	Tags      []string  `json:"tags,omitempty"`
+	Status    string    `json:"status,omitempty"` // active, consolidated, dream
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

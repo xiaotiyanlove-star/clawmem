@@ -41,6 +41,13 @@ func main() {
 	// 初始化核心服务
 	service := core.NewMemoryService(cfg, sqlStore, vectorStore, llmClient, embedManager)
 
+	// 启动 Dream 调度器（如果已启用）
+	var dreamScheduler *core.DreamScheduler
+	if cfg.DreamEnabled {
+		dreamScheduler = core.NewDreamScheduler(service)
+		dreamScheduler.Start()
+	}
+
 	// 初始化 HTTP 路由
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -56,6 +63,9 @@ func main() {
 		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 		<-quit
 		log.Println("收到退出信号，正在关闭服务...")
+		if dreamScheduler != nil {
+			dreamScheduler.Stop()
+		}
 		os.Exit(0)
 	}()
 

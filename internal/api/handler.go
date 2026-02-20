@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -28,6 +30,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	{
 		v1.POST("/memo", h.AddMemory)
 		v1.GET("/memo/search", h.SearchMemory)
+		v1.POST("/dream/trigger", h.TriggerDream)
 	}
 }
 
@@ -78,5 +81,18 @@ func (h *Handler) SearchMemory(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"data":  results,
 		"total": len(results),
+	})
+}
+
+// TriggerDream 手动触发一次记忆整合
+func (h *Handler) TriggerDream(c *gin.Context) {
+	go func() {
+		if err := h.service.RunDream(context.Background()); err != nil {
+			log.Printf("[DREAM API] Error: %v", err)
+		}
+	}()
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"message": "Dream cycle triggered. Check logs for progress.",
 	})
 }
