@@ -37,6 +37,7 @@ Running a smart AI Agent usually requires a **Vector Database** and an **Embeddi
 - 🧠 **Lazy Loading** — Local model loads only when needed, keeping memory footprint minimal during cloud-first operation.
 - 🏥 **Health Checks** — Automatic provider health checks on startup. Unhealthy providers are marked down immediately.
 - 💤 **Dream Engine** — Background auto-consolidation of memories. Compresses noisy chat logs into high-quality, conflict-resolved facts via LLM.
+- 🛠️ **Self-Healing** — Background auto-upgrade of "local dialect" vectors to high-quality cloud embeddings once network restores. No more "ghost data".
 
 ---
 
@@ -54,6 +55,9 @@ graph TD
     Dream[💤 Dream Engine<br/>Background Task] -.->|Read/Compress| SQLite
     Dream -.->|Store Consolidated| Service
     Dream -.->|Generate| LLM[🧠 LLM Provider]
+
+    Healer[🛠️ Healer<br/>Self-Healing Task] -.->|Upgrade Local Vectors| Manager
+    Healer -.->|Update Cache| SQLite
     
     subgraph "Multi-Tier Embedding Strategy"
         Manager -->|"Tier 1 · Priority"| CF[☁️ Cloudflare Workers AI<br/>Free · Fast]
@@ -68,6 +72,7 @@ graph TD
     style Local fill:#cfc,stroke:#333
     style VectorDB fill:#bbf,stroke:#333
     style Dream fill:#fcf,stroke:#333,stroke-dasharray: 5 5
+    style Healer fill:#cef,stroke:#333,stroke-dasharray: 5 5
     style LLM fill:#ff9,stroke:#333
 ```
 
@@ -285,6 +290,7 @@ ClawMem includes a built-in MCP server binary (`clawmem-mcp`) for integration wi
 - [x] MCP protocol server
 - [x] Lazy loading for local models
 - [x] Startup health checks
+- [x] Self-Healing mechanism for offline fallbacks
 - [ ] ONNX Runtime integration for quantized local inference (Int8)
 - [ ] Multi-user access control
 - [ ] Memory expiration and lifecycle management

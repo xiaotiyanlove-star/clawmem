@@ -37,6 +37,7 @@
 - 🧠 **延迟加载** — 本地模型按需加载，Cloud 模式下保持极低内存占用。
 - 🏥 **启动自检** — 启动时自动检测 API 可用性，不可用的 Provider 立即标记为 DOWN，避免运行时超时。
 - 💤 **梦境引擎 (Dream)** — 后台自动整合记忆。将碎片化的聊天记录压缩为高质量、无冲突的事实依据 (基于 LLM)。
+- 🛠️ **自愈机制 (Healer)** — 自动将断网时生成的“本地方言”向量升级为云端高精度向量。彻底告别“幽灵数据”。
 
 ---
 
@@ -54,6 +55,9 @@ graph TD
     Dream[💤 梦境引擎<br/>后台整合任务] -.->|读取/压缩| SQLite
     Dream -.->|存储精华记忆| Service
     Dream -.->|调用提炼| LLM[🧠 LLM 服务商]
+
+    Healer[🛠️ 自愈神医<br/>后台向量升级] -.->|升级本地向量| Manager
+    Healer -.->|更新缓存| SQLite
     
     subgraph "多级 Embedding 策略"
         Manager -->|"Tier 1 · 主力"| CF[☁️ Cloudflare Workers AI<br/>免费 · 快速]
@@ -68,6 +72,7 @@ graph TD
     style Local fill:#cfc,stroke:#333
     style VectorDB fill:#bbf,stroke:#333
     style Dream fill:#fcf,stroke:#333,stroke-dasharray: 5 5
+    style Healer fill:#cef,stroke:#333,stroke-dasharray: 5 5
     style LLM fill:#ff9,stroke:#333
 ```
 
@@ -265,6 +270,7 @@ ClawMem 内置了 MCP Server 二进制（`clawmem-mcp`），可与所有 MCP 兼
 - [x] MCP 协议 Server
 - [x] 本地模型延迟加载
 - [x] 启动自检
+- [x] 离线降级自愈机制 (Healer)
 - [ ] ONNX Runtime 集成（Int8 量化本地推理）
 - [ ] 多用户访问控制
 - [ ] 记忆过期与生命周期管理
