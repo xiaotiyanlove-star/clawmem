@@ -57,6 +57,7 @@ func main() {
 		mcp.WithDescription("Add a new memory or knowledge to the database. Use this when the user asks you to remember something."),
 		mcp.WithString("content", mcp.Required(), mcp.Description("The content of the memory or knowledge")),
 		mcp.WithString("source", mcp.Description("The source of the data (default: mcp)")),
+		mcp.WithString("user_id", mcp.Description("The unique ID of the user or session (default: global_user)")),
 	)
 
 	s.AddTool(addMemoryTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -73,9 +74,13 @@ func main() {
 		if source == "" {
 			source = "mcp"
 		}
+		userID, _ := args["user_id"].(string)
+		if userID == "" {
+			userID = "global_user"
+		}
 
 		req := &model.AddMemoryRequest{
-			UserID:  "default",
+			UserID:  userID,
 			Content: content,
 			Source:  source,
 		}
@@ -95,6 +100,7 @@ func main() {
 		mcp.WithDescription("Search for relevant memories or knowledge. Use this before answering questions to retrieve context."),
 		mcp.WithString("query", mcp.Required(), mcp.Description("The search query")),
 		mcp.WithNumber("top_k", mcp.Description("Number of results to return (default: 5)")),
+		mcp.WithString("user_id", mcp.Description("The unique ID of the user or session (default: global_user)")),
 	)
 
 	s.AddTool(searchMemoryTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -112,9 +118,13 @@ func main() {
 		if k, ok := args["top_k"].(float64); ok {
 			topK = k
 		}
+		userID, _ := args["user_id"].(string)
+		if userID == "" {
+			userID = "global_user"
+		}
 
 		req := &model.SearchMemoryRequest{
-			UserID: "default",
+			UserID: userID,
 			Query:  query,
 			TopK:   int(topK),
 		}
