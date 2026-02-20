@@ -51,28 +51,36 @@ func (s *MemoryService) AddMemory(ctx context.Context, req *model.AddMemoryReque
 		}
 	}
 
+	// 定位 embedding 的内容
+	embeddingContent := req.Content
+	if summary != "" {
+		embeddingContent = summary
+	}
+
+	// 显式调用 Embedding 引擎，获取生成的向量和来源提供商
+	vec, provider, err := s.embedManager.GetEmbedding(ctx, embeddingContent)
+	if err != nil {
+		return nil, fmt.Errorf("生成记忆向量失败: %w", err)
+	}
+
 	// 构建记忆对象
 	mem := &model.Memory{
-		ID:        id,
-		UserID:    req.UserID,
-		SessionID: req.SessionID,
-		Content:   req.Content,
-		Summary:   summary,
-		Source:    req.Source,
-		Tags:      req.Tags,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:            id,
+		UserID:        req.UserID,
+		SessionID:     req.SessionID,
+		Content:       req.Content,
+		Summary:       summary,
+		Source:        req.Source,
+		Tags:          req.Tags,
+		Status:        model.StatusActive,
+		EmbedProvider: provider, // 记录是谁生成的（"cloudflare", "local", 等）
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 
 	// 存入 SQLite
 	if err := s.sqlStore.Insert(mem); err != nil {
-		return nil, fmt.Errorf("存储记忆失败: %w", err)
-	}
-
-	// 存入向量库（使用摘要或原文作为 embedding 内容）
-	embeddingContent := mem.Content
-	if summary != "" {
-		embeddingContent = summary
+		return nil, fmt.Errorf("存储记忆存入 SQLite 失败: %w", err)
 	}
 
 	metadata := map[string]string{
@@ -81,7 +89,8 @@ func (s *MemoryService) AddMemory(ctx context.Context, req *model.AddMemoryReque
 		"source":     mem.Source,
 	}
 
-	if err := s.vectorStore.Add(ctx, id, embeddingContent, metadata); err != nil {
+	// 存入向量库（显式传入此前生成的向量，跳过底层二次生成）
+	if err := s.vectorStore.Add(ctx, id, embeddingContent, metadata, vec); err != nil {
 		// 向量存储失败不阻塞，元数据已入库
 		log.Printf("[WARN] 向量存储失败: %v", err)
 	}

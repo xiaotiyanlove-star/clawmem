@@ -11,16 +11,17 @@ const (
 
 // Memory 记忆条目数据结构
 type Memory struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	SessionID string    `json:"session_id,omitempty"`
-	Content   string    `json:"content"`
-	Summary   string    `json:"summary,omitempty"`
-	Source    string    `json:"source,omitempty"` // 来源标识，如 "chat", "document", "dream"
-	Tags      []string  `json:"tags,omitempty"`
-	Status    string    `json:"status,omitempty"` // active, consolidated, dream
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID            string    `json:"id"`
+	UserID        string    `json:"user_id"`
+	SessionID     string    `json:"session_id,omitempty"`
+	Content       string    `json:"content"`
+	Summary       string    `json:"summary,omitempty"`
+	Source        string    `json:"source,omitempty"` // 来源标识，如 "chat", "document", "dream"
+	Tags          []string  `json:"tags,omitempty"`
+	Status        string    `json:"status,omitempty"`         // active, consolidated, dream
+	EmbedProvider string    `json:"embed_provider,omitempty"` // 生成此记忆向量的具体模型/服务商 (e.g. cloudflare, local)
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // AddMemoryRequest 添加记忆请求
@@ -42,8 +43,8 @@ type SearchMemoryRequest struct {
 
 // SearchResult 检索结果
 type SearchResult struct {
-	Memory     Memory  `json:"memory"`
-	Score      float32 `json:"score"`
+	Memory Memory  `json:"memory"`
+	Score  float32 `json:"score"`
 }
 
 // HealthResponse 健康检查响应

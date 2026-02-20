@@ -51,6 +51,7 @@ func (s *SQLiteStore) migrate() error {
 		source     TEXT DEFAULT '',
 		tags       TEXT DEFAULT '[]',
 		status     TEXT DEFAULT 'active',
+		embed_provider TEXT DEFAULT '',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -63,6 +64,7 @@ func (s *SQLiteStore) migrate() error {
 	CREATE TABLE IF NOT EXISTS embedding_cache (
 		hash TEXT PRIMARY KEY,
 		vector TEXT,
+		provider TEXT DEFAULT '',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
@@ -83,38 +85,43 @@ func (s *SQLiteStore) migrate() error {
 
 	// 兼容旧数据库：尝试添加 status 列（已存在则忽略）
 	s.db.Exec("ALTER TABLE memories ADD COLUMN status TEXT DEFAULT 'active'")
+	// 兼容旧数据库：尝试添加 embed_provider 列（已存在则忽略）
+	s.db.Exec("ALTER TABLE memories ADD COLUMN embed_provider TEXT DEFAULT ''")
+	// 兼容旧数据库：尝试添加 provider 列（已存在则忽略）
+	s.db.Exec("ALTER TABLE embedding_cache ADD COLUMN provider TEXT DEFAULT ''")
 	return nil
 }
 
-// GetCachedEmbedding 获取缓存的向量
-func (s *SQLiteStore) GetCachedEmbedding(hash string) ([]float32, error) {
-	var vectorJSON string
-	err := s.db.QueryRow("SELECT vector FROM embedding_cache WHERE hash = ?", hash).Scan(&vectorJSON)
+// GetCachedEmbedding 获取缓存的向量及来源提供商
+func (s *SQLiteStore) GetCachedEmbedding(hash string) ([]float32, string, error) {
+	var vectorJSON, provider string
+	err := s.db.QueryRow("SELECT vector, provider FROM embedding_cache WHERE hash = ?", hash).Scan(&vectorJSON, &provider)
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, "", nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	var vector []float32
 	if err := json.Unmarshal([]byte(vectorJSON), &vector); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return vector, nil
+	return vector, provider, nil
 }
 
-// SetCachedEmbedding 设置缓存向量
-func (s *SQLiteStore) SetCachedEmbedding(hash string, vector []float32) error {
+// SetCachedEmbedding 设置缓存向量及来源提供商
+func (s *SQLiteStore) SetCachedEmbedding(hash string, vector []float32, provider string) error {
 	vectorJSON, err := json.Marshal(vector)
 	if err != nil {
 		return err
 	}
 
 	_, err = s.db.Exec(`
-		INSERT OR IGNORE INTO embedding_cache (hash, vector)
-		VALUES (?, ?)
-	`, hash, string(vectorJSON))
+		INSERT INTO embedding_cache (hash, vector, provider)
+		VALUES (?, ?, ?)
+		ON CONFLICT(hash) DO UPDATE SET vector=excluded.vector, provider=excluded.provider
+	`, hash, string(vectorJSON), provider)
 	return err
 }
 
@@ -126,16 +133,16 @@ func (s *SQLiteStore) Insert(m *model.Memory) error {
 		status = model.StatusActive
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO memories (id, user_id, session_id, content, summary, source, tags, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.UserID, m.SessionID, m.Content, m.Summary, m.Source, string(tagsJSON), status, m.CreatedAt, m.UpdatedAt,
+		`INSERT INTO memories (id, user_id, session_id, content, summary, source, tags, status, embed_provider, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.UserID, m.SessionID, m.Content, m.Summary, m.Source, string(tagsJSON), status, m.EmbedProvider, m.CreatedAt, m.UpdatedAt,
 	)
 	return err
 }
 
 // GetByID 根据 ID 获取记忆
 func (s *SQLiteStore) GetByID(id string) (*model.Memory, error) {
-	row := s.db.QueryRow(`SELECT id, user_id, session_id, content, summary, source, tags, status, created_at, updated_at FROM memories WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT id, user_id, session_id, content, summary, source, tags, status, embed_provider, created_at, updated_at FROM memories WHERE id = ?`, id)
 	return scanMemory(row)
 }
 
@@ -153,7 +160,7 @@ func (s *SQLiteStore) GetByIDs(ids []string) ([]*model.Memory, error) {
 	}
 
 	query := fmt.Sprintf(
-		`SELECT id, user_id, session_id, content, summary, source, tags, status, created_at, updated_at
+		`SELECT id, user_id, session_id, content, summary, source, tags, status, embed_provider, created_at, updated_at
 		FROM memories WHERE id IN (%s)`,
 		strings.Join(placeholders, ","),
 	)
@@ -181,7 +188,7 @@ func (s *SQLiteStore) GetRecentActive(since time.Time, limit int) ([]*model.Memo
 		limit = 200
 	}
 	rows, err := s.db.Query(
-		`SELECT id, user_id, session_id, content, summary, source, tags, status, created_at, updated_at
+		`SELECT id, user_id, session_id, content, summary, source, tags, status, embed_provider, created_at, updated_at
 		FROM memories
 		WHERE status = ? AND created_at >= ?
 		ORDER BY created_at ASC
@@ -264,14 +271,15 @@ func (s *SQLiteStore) Close() error {
 // scanMemory 从单行查询结果扫描 Memory
 func scanMemory(row *sql.Row) (*model.Memory, error) {
 	var m model.Memory
-	var tagsJSON, status string
+	var tagsJSON, status, provider string
 	var createdAt, updatedAt string
-	err := row.Scan(&m.ID, &m.UserID, &m.SessionID, &m.Content, &m.Summary, &m.Source, &tagsJSON, &status, &createdAt, &updatedAt)
+	err := row.Scan(&m.ID, &m.UserID, &m.SessionID, &m.Content, &m.Summary, &m.Source, &tagsJSON, &status, &provider, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal([]byte(tagsJSON), &m.Tags)
 	m.Status = status
+	m.EmbedProvider = provider
 	m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	m.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
 	return &m, nil
@@ -280,15 +288,51 @@ func scanMemory(row *sql.Row) (*model.Memory, error) {
 // scanMemoryFromRows 从多行查询结果扫描 Memory
 func scanMemoryFromRows(rows *sql.Rows) (*model.Memory, error) {
 	var m model.Memory
-	var tagsJSON, status string
+	var tagsJSON, status, provider string
 	var createdAt, updatedAt string
-	err := rows.Scan(&m.ID, &m.UserID, &m.SessionID, &m.Content, &m.Summary, &m.Source, &tagsJSON, &status, &createdAt, &updatedAt)
+	err := rows.Scan(&m.ID, &m.UserID, &m.SessionID, &m.Content, &m.Summary, &m.Source, &tagsJSON, &status, &provider, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal([]byte(tagsJSON), &m.Tags)
 	m.Status = status
+	m.EmbedProvider = provider
 	m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	m.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
 	return &m, nil
+}
+
+// GetLocalMemories 获取需要被修复为云端推理的本地记忆
+func (s *SQLiteStore) GetLocalMemories(limit int) ([]*model.Memory, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.Query(
+		`SELECT id, user_id, session_id, content, summary, source, tags, status, embed_provider, created_at, updated_at
+		FROM memories
+		WHERE status = ? AND embed_provider = ?
+		ORDER BY created_at ASC
+		LIMIT ?`,
+		model.StatusActive, "local", limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []*model.Memory
+	for rows.Next() {
+		m, err := scanMemoryFromRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, m)
+	}
+	return results, rows.Err()
+}
+
+// UpdateMemoryProvider 更新单条记忆的 EmbedProvider
+func (s *SQLiteStore) UpdateMemoryProvider(id string, newProvider string) error {
+	_, err := s.db.Exec(`UPDATE memories SET embed_provider = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, newProvider, id)
+	return err
 }

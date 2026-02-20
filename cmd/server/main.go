@@ -48,6 +48,10 @@ func main() {
 		dreamScheduler.Start()
 	}
 
+	// 启动自愈 (Healer) 调度器
+	healerScheduler := core.NewHealerScheduler(service)
+	healerScheduler.Start()
+
 	// 初始化 HTTP 路由
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -65,6 +69,9 @@ func main() {
 		log.Println("收到退出信号，正在关闭服务...")
 		if dreamScheduler != nil {
 			dreamScheduler.Stop()
+		}
+		if healerScheduler != nil {
+			healerScheduler.Stop()
 		}
 		os.Exit(0)
 	}()

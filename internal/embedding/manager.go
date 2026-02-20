@@ -100,20 +100,21 @@ func (m *Manager) isDown(name string) bool {
 }
 
 // GetEmbedding 获取文本向量 (单条，兼容旧接口)
-func (m *Manager) GetEmbedding(ctx context.Context, text string) ([]float32, error) {
-	vecs, err := m.GetEmbeddingBatch(ctx, []string{text})
+func (m *Manager) GetEmbedding(ctx context.Context, text string) ([]float32, string, error) {
+	vecs, providers, err := m.GetEmbeddingBatch(ctx, []string{text})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if len(vecs) > 0 {
-		return vecs[0], nil
+		return vecs[0], providers[0], nil
 	}
-	return nil, fmt.Errorf("empty result")
+	return nil, "", fmt.Errorf("empty result")
 }
 
 // GetEmbeddingBatch 批量获取向量 (含缓存 + 策略降级 + 差量计算)
-func (m *Manager) GetEmbeddingBatch(ctx context.Context, texts []string) ([][]float32, error) {
+func (m *Manager) GetEmbeddingBatch(ctx context.Context, texts []string) ([][]float32, []string, error) {
 	finalResults := make([][]float32, len(texts))
+	finalProviders := make([]string, len(texts))
 	hashes := make([]string, len(texts))
 
 	// 记录需要计算的文本索引和内容
@@ -124,8 +125,9 @@ func (m *Manager) GetEmbeddingBatch(ctx context.Context, texts []string) ([][]fl
 	for i, text := range texts {
 		h := md5Hash(text)
 		hashes[i] = h
-		if vec, err := m.cacheStore.GetCachedEmbedding(h); err == nil && vec != nil {
+		if vec, provider, err := m.cacheStore.GetCachedEmbedding(h); err == nil && vec != nil {
 			finalResults[i] = vec
+			finalProviders[i] = provider
 		} else {
 			missingIndices = append(missingIndices, i)
 			missingTexts = append(missingTexts, text)
@@ -134,51 +136,72 @@ func (m *Manager) GetEmbeddingBatch(ctx context.Context, texts []string) ([][]fl
 
 	// 如果全部命中缓存，直接返回（Zero API Call）
 	if len(missingTexts) == 0 {
-		return finalResults, nil
+		return finalResults, finalProviders, nil
 	}
 
 	log.Printf("[INFO] Cache Hit: %d/%d. Fetching %d missing embeddings...", len(texts)-len(missingTexts), len(texts), len(missingTexts))
 
 	// 2. 仅对缺失部分执行 Embedding
 	var computedVecs [][]float32
+	var computedProvider string
 	var err error
 
 	strategy := m.cfg.EmbeddingStrategy
 	switch strategy {
 	case "accuracy_first":
-		computedVecs, err = m.tryChainBatch(ctx, missingTexts, m.openai, m.cloudflare, m.local)
+		computedVecs, computedProvider, err = m.tryChainBatch(ctx, missingTexts, m.openai, m.cloudflare, m.local)
 	case "local_only":
-		computedVecs, err = m.tryChainBatch(ctx, missingTexts, m.local)
+		computedVecs, computedProvider, err = m.tryChainBatch(ctx, missingTexts, m.local)
 	case "cloud_first":
 		fallthrough
 	default:
-		computedVecs, err = m.tryChainBatch(ctx, missingTexts, m.cloudflare, m.local)
+		computedVecs, computedProvider, err = m.tryChainBatch(ctx, missingTexts, m.cloudflare, m.local)
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("all embedding strategies failed for missing items: %w", err)
+		return nil, nil, fmt.Errorf("all embedding strategies failed for missing items: %w", err)
 	}
 
 	if len(computedVecs) != len(missingTexts) {
-		return nil, fmt.Errorf("embedding count mismatch: sent %d, got %d", len(missingTexts), len(computedVecs))
+		return nil, nil, fmt.Errorf("embedding count mismatch: sent %d, got %d", len(missingTexts), len(computedVecs))
 	}
 
 	// 3. 合并结果并写入缓存
 	for i, idx := range missingIndices {
 		vec := computedVecs[i]
 		finalResults[idx] = vec // 填回原位
+		finalProviders[idx] = computedProvider
 
 		// 写入缓存
-		if err := m.cacheStore.SetCachedEmbedding(hashes[idx], vec); err != nil {
+		if err := m.cacheStore.SetCachedEmbedding(hashes[idx], vec, computedProvider); err != nil {
 			log.Printf("[WARN] Failed to cache embedding: %v", err)
 		}
 	}
 
-	return finalResults, nil
+	return finalResults, finalProviders, nil
+}
+
+// ForceCloudEmbeddingBatch 强制使用云端执行大批量 Embedding（绕过缓存并强制覆盖）
+func (m *Manager) ForceCloudEmbeddingBatch(ctx context.Context, texts []string) ([][]float32, string, error) {
+	// 验证 Cloud 是否可用 (仅尝试 Cloudflare 和 OpenAI)
+	vecs, provider, err := m.tryChainBatch(ctx, texts, m.cloudflare, m.openai)
+	if err != nil {
+		return nil, "", fmt.Errorf("cloud embed failed during heal: %w", err)
+	}
+
+	// 强制重写 Cache
+	for i, text := range texts {
+		h := md5Hash(text)
+		if err := m.cacheStore.SetCachedEmbedding(h, vecs[i], provider); err != nil {
+			log.Printf("[WARN] Failed to overwrite cache during heal: %v", err)
+		}
+	}
+
+	return vecs, provider, nil
 }
 
 // tryChainBatch 尝试执行链 (Batch)
-func (m *Manager) tryChainBatch(ctx context.Context, texts []string, embedders ...Embedder) ([][]float32, error) {
+func (m *Manager) tryChainBatch(ctx context.Context, texts []string, embedders ...Embedder) ([][]float32, string, error) {
 	var lastErr error
 	for _, e := range embedders {
 		if !m.isConfigured(e) || m.isDown(e.Name()) {
@@ -197,13 +220,13 @@ func (m *Manager) tryChainBatch(ctx context.Context, texts []string, embedders .
 
 		if err == nil {
 			log.Printf("[INFO] Embedded batch (%d items) using %s", len(texts), e.Name())
-			return vecs, nil
+			return vecs, e.Name(), nil
 		}
 
 		log.Printf("[WARN] Embedder %s failed: %v", e.Name(), err)
 		lastErr = err
 	}
-	return nil, lastErr
+	return nil, "", lastErr
 }
 
 // isConfigured 检查 Embedder 是否配置可用

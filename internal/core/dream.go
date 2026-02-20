@@ -181,15 +181,23 @@ func (s *MemoryService) RunDream(ctx context.Context) error {
 	now := time.Now().UTC()
 	dateTag := now.Format("2006-01-02")
 	for _, content := range consolidated {
+		// 生成精华记忆的词向量并获取 provider
+		vec, provider, err := s.embedManager.GetEmbedding(ctx, content)
+		if err != nil {
+			log.Printf("[DREAM] Failed to generate embedding for consolidated memory: %v", err)
+			continue
+		}
+
 		dreamMem := &model.Memory{
-			ID:        uuid.New().String(),
-			UserID:    "default",
-			Content:   content,
-			Source:    "dream",
-			Tags:      []string{"dream", "consolidated", dateTag},
-			Status:    model.StatusDream,
-			CreatedAt: now,
-			UpdatedAt: now,
+			ID:            uuid.New().String(),
+			UserID:        "default",
+			Content:       content,
+			Source:        "dream",
+			Tags:          []string{"dream", "consolidated", dateTag},
+			Status:        model.StatusDream,
+			EmbedProvider: provider,
+			CreatedAt:     now,
+			UpdatedAt:     now,
 		}
 
 		if err := s.sqlStore.Insert(dreamMem); err != nil {
@@ -203,7 +211,7 @@ func (s *MemoryService) RunDream(ctx context.Context) error {
 			"source":  "dream",
 			"status":  model.StatusDream,
 		}
-		if err := s.vectorStore.Add(ctx, dreamMem.ID, content, metadata); err != nil {
+		if err := s.vectorStore.Add(ctx, dreamMem.ID, content, metadata, vec); err != nil {
 			log.Printf("[DREAM] Failed to store vector for consolidated memory: %v", err)
 		}
 	}
