@@ -11,22 +11,23 @@
 
 ## 📦 快速安装 (3 步)
 
-### 1. 创建插件与配置目录
+相比于普通的内置 JSON 插件，OpenClaw 需要通过 TypeScript Extensions 目录直接加载我们的生命周期逻辑代码。
+
+### 1. 建立专属存储扩展目录
 ```bash
-mkdir -p ~/.openclaw/extensions/clawmem-integration/lib
-mkdir -p ~/.openclaw/extensions/clawmem-integration/config
+mkdir -p ~/.openclaw/extensions/clawmem-integration
 ```
 
-### 2. 复制核心文件
-假定您当前在 `clawmem/integrations/openclaw/` 目录下：
+### 2. 复制插件源码 (或创建软链接)
+将本目录下的 `index.ts` 链接或拷贝过去，**确保文件名必须是 `index.ts`**：
 ```bash
-cp plugin.js ~/.openclaw/extensions/clawmem-integration/
-cp openclaw.plugin.json ~/.openclaw/extensions/clawmem-integration/
+# 推荐使用软链接，方便随时同步本地更新
+ln -s $(pwd)/index.ts ~/.openclaw/extensions/clawmem-integration/index.ts
 ```
-*(开发者也可使用 `ln -s` 建立软链接替代 `cp`，以便随时调试更新)*
 
-### 3. 配置 OpenClaw
-在您的 `~/.openclaw/openclaw.json` (或独立配置) 中的 `plugins.entries` 追加如下节点：
+### 3. 配置参数传递 (Plugin Config)
+虽然它是通过 TS 文件动态加载的，但它的配置依旧接受 OpenClaw `plugins.entries` 下的参数注入。
+在您的 `~/.openclaw/openclaw.json` 里添加：
 
 ```json
 {
@@ -35,7 +36,7 @@ cp openclaw.plugin.json ~/.openclaw/extensions/clawmem-integration/
       "clawmem-integration": {
         "enabled": true,
         "config": {
-          "baseUrl": "http://127.0.0.1:8080/api/v1",
+          "baseUrl": "http://127.0.0.1:8090/api/v1",
           "authToken": "CHANGE_ME",
           "defaultUser": "default",
           "memoryLimit": 6,

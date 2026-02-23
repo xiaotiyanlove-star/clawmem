@@ -8,30 +8,30 @@
 const PLUGIN_ID = "clawmem-integration";
 const PLUGIN_TAG = `[${PLUGIN_ID}]`;
 
-function truncate(text, maxLen) {
+function truncate(text: string, maxLen: number): string {
   if (!text || !maxLen) return text;
   return text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
 }
 
-function extractText(content) {
+function extractText(content: any): string {
   if (!content) return "";
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
-    return content.filter((b) => b?.type === "text").map((b) => b.text).join(" ");
+    return content.filter((b: any) => b?.type === "text").map((b: any) => b.text).join(" ");
   }
   return "";
 }
 
-function pad2(v) {
+function pad2(v: number): string {
   return String(v).padStart(2, "0");
 }
 
-function formatTime(ts) {
+function formatTime(ts?: number | string): string {
   const d = ts ? new Date(ts) : new Date();
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-function buildPrependContext({ qmdResults, conversations, preferences, nowText }) {
+function buildPrependContext({ qmdResults, conversations, preferences, nowText }: any): string {
   const lines = [];
   lines.push("# Role", "");
   lines.push("You are an intelligent assistant with long-term memory. Use the retrieved memory fragments below to provide personalized, accurate responses.", "");
@@ -130,7 +130,7 @@ export default {
     required: ["baseUrl", "authToken"]
   },
 
-  register(api) {
+  register(api: any) {
     const cfg = api.pluginConfig || {};
     const log = api.logger || console;
     const baseUrl = cfg.baseUrl?.replace(/\/+$/, '').trim();
@@ -146,14 +146,14 @@ export default {
       "Content-Type": "application/json"
     };
 
-    const isAgentAllowed = (ctx) => {
+    const isAgentAllowed = (ctx: any): boolean => {
       const agentIds = cfg.agentIds;
       if (!agentIds || !Array.isArray(agentIds) || agentIds.length === 0) return true;
       return agentIds.includes(ctx?.agentId);
     };
 
     // before_agent_start: 从 ClawMem 召回记忆
-    api.on("before_agent_start", async (event, ctx) => {
+    api.on("before_agent_start", async (event: any, ctx: any) => {
       if (!cfg.recallEnabled || !isAgentAllowed(ctx)) return;
       const prompt = typeof event?.prompt === "string" ? event.prompt : "";
       if (!prompt || prompt.length < 3) return;
@@ -179,14 +179,14 @@ export default {
         let clawmemResults = [];
         if (qmdResults.length < cfg.memoryLimit) {
           try {
-            const resp = await fetch(`${baseUrl}/api/v1/memo/search`, {
+            const queryUrl = new URL(`${baseUrl}/api/v1/memo/search`);
+            queryUrl.searchParams.append("user_id", cfg.defaultUser);
+            queryUrl.searchParams.append("query", prompt);
+            queryUrl.searchParams.append("top_k", String(cfg.memoryLimit - qmdResults.length));
+
+            const resp = await fetch(queryUrl.toString(), {
               method: 'GET',
-              headers,
-              params: {
-                user_id: cfg.defaultUser,
-                query: prompt,
-                top_k: cfg.memoryLimit - qmdResults.length
-              }
+              headers
             });
             if (resp.ok) {
               const { data } = await resp.json();
@@ -202,7 +202,7 @@ export default {
         if (!allResults.length) return;
 
         // 转换为统一格式
-        const memories = allResults.map(item => {
+        const memories = allResults.map((item: any) => {
           const mem = item?.memory || item;
           return {
             content: mem.content,
@@ -226,7 +226,7 @@ export default {
     });
 
     // agent_end: 存储对话到 ClawMem
-    api.on("agent_end", async (event, ctx) => {
+    api.on("agent_end", async (event: any, ctx: any) => {
       if (!cfg.storeEnabled || !isAgentAllowed(ctx)) return;
       if (!event?.success || !event?.messages?.length) return;
 
@@ -247,7 +247,7 @@ export default {
 
         if (!messages.length) return;
 
-        const conversation = messages.map(m => `[${m.role}] ${m.content}`).join("\n");
+        const conversation = messages.map((m: any) => `[${m.role}] ${m.content}`).join("\n");
         const payload = {
           user_id: cfg.defaultUser,
           content: conversation,
