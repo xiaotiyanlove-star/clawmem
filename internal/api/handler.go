@@ -251,6 +251,11 @@ func (h *Handler) Dashboard(c *gin.Context) {
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(dashboardHTML))
 }
 
+// GetDashboardHTMLForTest 仅用于测试验证输出
+func GetDashboardHTMLForTest() string {
+	return dashboardHTML
+}
+
 const dashboardHTML = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
