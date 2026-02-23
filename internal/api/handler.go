@@ -370,27 +370,39 @@ const dashboardHTML = `<!DOCTYPE html>
                 let kindsHTML = '';
                 if(data.kind_counts) {
                     for(const [k, v] of Object.entries(data.kind_counts)) {
-                        kindsHTML += '<div style="flex: 1; text-align: center; border-right: 1px solid #334155; padding: 0 10px;" onclick="event.stopPropagation(); filterByKind(\''+k+'\')">' +
+                        kindsHTML += '<div style="flex: 1; text-align: center; border-right: 1px solid #334155; padding: 0 10px;" onclick="event.stopPropagation(); filterByKind(\\''+k+'\\')">' +
                                      '<div style="color: #94a3b8; font-size: 0.8rem; margin-bottom: 5px;">'+k.toUpperCase()+'</div>' +
                                      '<div style="font-weight: bold; color: var(--accent)">'+v+'</div></div>';
                     }
                 }
 
-                document.getElementById('statsGrid').innerHTML = `
-                    <div class="card" onclick="filterByKind('')">
-                        <h3>🧊 活跃记忆总数</h3>
-                        <div class="value">${active} <span style="font-size: 1rem; color: #64748b;">/ ${max}</span></div>
-                        <div class="progress-bg"><div class="progress-fill ${fillClass}" style="width:${pct}%"></div></div>
-                    </div>
-                    <div class="card">
-                        <h3>🗑️ 遗忘/软删除区</h3>
-                        <div class="value" style="color: var(--delete)">${data.total_deleted || 0}</div>
-                        <div style="color: #64748b; font-size: 0.9rem; margin-top: 0.5rem;">等待引擎后台深度物理抹除...</div>
-                    </div>
-                    <div class="card" style="grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-around; padding: 1rem;">
-                        ${kindsHTML || '<span style="color: #64748b">暂无分层数据</span>'}
-                    </div>
-                `;
+                const grid = document.getElementById('statsGrid');
+                grid.innerHTML = '';
+
+                // Card 1
+                let c1 = document.createElement('div');
+                c1.className = 'card';
+                c1.onclick = function() { filterByKind(''); };
+                c1.innerHTML = '<h3>🧊 活跃记忆总数</h3><div class="value">' + active + ' <span style="font-size: 1rem; color: #64748b;">/ ' + max + '</span></div><div class="progress-bg"><div class="progress-fill ' + fillClass + '" style="width:' + pct + '%"></div></div>';
+                grid.appendChild(c1);
+
+                // Card 2
+                let c2 = document.createElement('div');
+                c2.className = 'card';
+                c2.innerHTML = '<h3>🗑️ 遗忘/软删除区</h3><div class="value" style="color: var(--delete)">' + (data.total_deleted || 0) + '</div><div style="color: #64748b; font-size: 0.9rem; margin-top: 0.5rem;">等待引擎后台深度物理抹除...</div>';
+                grid.appendChild(c2);
+
+                // Card 3
+                let c3 = document.createElement('div');
+                c3.className = 'card';
+                c3.style.gridColumn = '1 / -1';
+                c3.style.display = 'flex';
+                c3.style.alignItems = 'center';
+                c3.style.justifyContent = 'space-around';
+                c3.style.padding = '1rem';
+                c3.innerHTML = kindsHTML || '<span style="color: #64748b">暂无分层数据</span>';
+                grid.appendChild(c3);
+
             } catch(e) {
                 console.error(e);
             }
@@ -412,22 +424,44 @@ const dashboardHTML = `<!DOCTYPE html>
                     return;
                 }
 
-                // 存入缓存，避免转义地狱
                 data.forEach(m => { memoCache[m.id] = m; });
 
-                tbody.innerHTML = data.map(m => {
+                tbody.innerHTML = '';
+                data.forEach(m => {
                     const date = new Date(m.created_at).toLocaleString();
-                    const preview = m.content.length > 80 ? m.content.substring(0, 80).replace(/</g,'&lt;') + '...' : m.content.replace(/</g,'&lt;');
+                    const rawContent = String(m.content || '');
+                    const previewText = rawContent.length > 80 ? rawContent.substring(0, 80) + '...' : rawContent;
+                    const kindStr = m.kind || 'CONV';
                     const kindClass = 'badge-' + (m.kind || 'conversation');
-                    return `
-                        <tr>
-                            <td style="color: #94a3b8">${date}</td>
-                            <td><span class="badge ${kindClass}">${m.kind || 'CONV'}</span></td>
-                            <td>${preview}</td>
-                            <td><span class="btn-view" onclick="showDetailById('${m.id}')">查看详情</span></td>
-                        </tr>
-                    `;
-                }).join('');
+
+                    let tr = document.createElement('tr');
+                    
+                    let td1 = document.createElement('td');
+                    td1.style.color = '#94a3b8';
+                    td1.textContent = date;
+                    tr.appendChild(td1);
+
+                    let td2 = document.createElement('td');
+                    let spanK = document.createElement('span');
+                    spanK.className = 'badge ' + kindClass;
+                    spanK.textContent = kindStr;
+                    td2.appendChild(spanK);
+                    tr.appendChild(td2);
+
+                    let td3 = document.createElement('td');
+                    td3.textContent = previewText;
+                    tr.appendChild(td3);
+
+                    let td4 = document.createElement('td');
+                    let spanV = document.createElement('span');
+                    spanV.className = 'btn-view';
+                    spanV.textContent = '查看详情';
+                    spanV.onclick = function() { showDetailById(m.id); };
+                    td4.appendChild(spanV);
+                    tr.appendChild(td4);
+
+                    tbody.appendChild(tr);
+                });
             } catch(e) {
                 tbody.style.opacity = '1';
                 tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:red;">加载列表异常</td></tr>';
@@ -474,4 +508,3 @@ const dashboardHTML = `<!DOCTYPE html>
     </script>
 </body>
 </html>`
-
