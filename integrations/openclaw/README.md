@@ -18,11 +18,12 @@
 mkdir -p ~/.openclaw/extensions/clawmem-integration
 ```
 
-### 2. 复制插件源码 (或创建软链接)
-将本目录下的 `index.ts` 链接或拷贝过去，**确保文件名必须是 `index.ts`**：
+### 2. 复制核心文件 (或创建软链接)
+将本目录下的 `index.ts` 以及 `openclaw.plugin.json` 链接或拷贝过去，**确保文件名一致**：
 ```bash
 # 推荐使用软链接，方便随时同步本地更新
 ln -s $(pwd)/index.ts ~/.openclaw/extensions/clawmem-integration/index.ts
+ln -s $(pwd)/openclaw.plugin.json ~/.openclaw/extensions/clawmem-integration/openclaw.plugin.json
 ```
 
 ### 3. 配置参数传递 (Plugin Config)
@@ -104,21 +105,57 @@ curl -H "Authorization: Bearer YOUR_TOKEN" \
 ```
 应该能看到最近对话被存储并召回。
 
-## 🛠️ 故障排除
+## ⚠️ 避坑指南（重要！）
 
-| 问题现象 | 可能原因 | 解决思路 |
-|----------|----------|----------|
-| **插件未加载** | 配置文件错位或路径不正确 | 确认 `openclaw.plugin.json` 放置在 `~/.openclaw/extensions/clawmem-integration/` 目录下且 JSON 语法格式正确。 |
-| **API 返回 404** | 服务没启动或 `baseUrl` 填错 | 检查 `baseUrl` 最后是否包含了 `/api/v1`，确认 ClawMem 侧进程正在运行。 |
-| **API 返回 401** | Token 不匹配或格式错 | 核对 `authToken` 是否与 ClawMem 服务端的 `AUTH_TOKEN` 完全一致，注意头尾不能残留空格。 |
-| **未见自动召回** | 开关未开启或搜索不到内容 | 核对 `recallEnabled: true`。若刚搭建，请先进行两轮正常对话积累数据再刷新重试。 |
-| **未见自动存储** | 截断保护或网络阻断 | 检查 `storeEnabled: true`，确保配置中的服务器 IP 能被宿机外网访问。 |
+### 坑 1：入口文件必须是 `.ts`，不能是 `.js`
+OpenClaw 的插件加载器扫描路径为 `~/.openclaw/extensions/*/index.ts`。如果你用 `plugin.js` 或普通 JS 文件，**不会被发现加载**。
+
+### 坑 2：`openclaw.plugin.json` 绝对不能删
+OpenClaw 强依赖这个文件来验证 `configSchema`。**没有这个文件 = 服务端拒绝注册 = 启动报错。**
+
+### 坑 3：config 字段及 AuthToken 是必填项
+如果 `openclaw.json` 中缺少 `baseUrl`/`authToken`，Gateway 启动时会报 `invalid config`，**直接导致所有服务中断并拒绝启动**。
+*解法*: 请直接删除损坏配置条目后执行 `openclaw gateway restart` 临时恢复。
+
+### 坑 4：baseUrl 不要带尾部斜杠
+❌ 错误: `http://localhost:8090/`
+✅ 正确: `http://localhost:8090`
+多一个斜杠会导致请求路径拼接成无效的 `//api/v1/...`。
+
+### 坑 5：远程访问需要公网地址
+如果 OpenClaw 服务端和 ClawMem 部署在不同机器，请勿使用 `localhost`，需填写能互相触达的公网 IP 或绑定域名。
+
+### 坑 6：插件加载警告 (plugins.allow is empty)
+这是 OpenClaw 控制三方注入的新沙盒机制发出的常规提示，属于正常现象。若想消除，可在 `openclaw.json` 中显式添加 `"allow": ["clawmem-integration"]`。
+
+### 坑 7：ClawMem 宕机会阻塞对话吗？
+**不会**。本插件的所有网络通信均配置了 `AbortSignal.timeout(5000)` 上界限。如果 ClawMem 不可用，记忆获取或写入会快速超时静默失败，**绝不影响终端用户的聊天响应速度**。
+
+### 坑 8：`openclaw doctor --fix` 的副作用
+如果你在缺失 `openclaw.plugin.json` 等残缺状态下允许 doctor 执行自愈，它很可能会把你的 `plugins.entries` 插件挂载声明**直接抹除**。当修复目录结构后，你需要重新在 JSON 添加回来。
+
+---
+
+## 💡 常见问题 (FAQ)
+
+### Q: 如何查看插件是否在工作？
+```bash
+openclaw logs --follow | grep "\[clawmem\]"
+```
+
+### Q: 记忆太多太杂，或是每次抓取太过发散？
+1. 在配置中减小 `memoryLimit`（例如改为 3）。
+2. 使用 Dashboard 面板主动删除部分时效性弱的信息。
+3. ClawMem 后端搭载了 **Dream 梦境引擎**，它能后台异步将大量碎片信息浓缩合并（解决超限问题）。
+
+### Q: 如何只给特定的 Agent 开启自动记忆感知？
+```json
+"agentIds": ["agent-uuid-string"]  // 指定白名单
+```
 
 ## 📝 与 ClawMem Dashboard 的关系
-
-- 本插件仅使用 ClawMem 的 **REST API**
-- Dashboard 是独立的管理界面，不影响插件功能
-- 建议为 API 和 Dashboard 分别配置不同的 token/password
+- 本插件仅使用 ClawMem 分离暴露的 **REST API**。
+- Dashboard 是独立的纯前端管理看板，互不阻塞，强烈建议前后端拆分不同的认证鉴权令牌避免泄露。
 
 ## 🤝 后续规划
 

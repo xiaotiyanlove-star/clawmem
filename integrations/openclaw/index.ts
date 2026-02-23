@@ -186,7 +186,8 @@ export default {
 
             const resp = await fetch(queryUrl.toString(), {
               method: 'GET',
-              headers
+              headers,
+              signal: AbortSignal.timeout(5000)
             });
             if (resp.ok) {
               const { data } = await resp.json();
@@ -258,7 +259,8 @@ export default {
         await fetch(`${baseUrl}/api/v1/memo/set`, {
           method: 'POST',
           headers,
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(5000)
         });
         log.info?.(`${PLUGIN_TAG} Stored conversation (${conversation.length} chars)`);
       } catch (err) {

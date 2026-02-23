@@ -1,0 +1,58 @@
+{
+    "id": "clawmem-integration",
+    "name": "ClawMem Integration",
+    "description": "Auto-capture conversations and recall relevant memories via ClawMem REST API.",
+    "version": "0.1.1",
+    "kind": "lifecycle",
+    "main": "./index.ts",
+    "configSchema": {
+        "type": "object",
+        "properties": {
+            "baseUrl": {
+                "type": "string",
+                "description": "ClawMem API base URL (e.g., http://localhost:8090/api/v1)"
+            },
+            "authToken": {
+                "type": "string",
+                "description": "Bearer token for ClawMem API (AUTH_TOKEN)"
+            },
+            "defaultUser": {
+                "type": "string",
+                "default": "default",
+                "description": "User ID to use for memory storage/recall"
+            },
+            "memoryLimit": {
+                "type": "integer",
+                "default": 6,
+                "description": "Number of memories to recall per conversation"
+            },
+            "storeEnabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Enable automatic storage after conversation"
+            },
+            "recallEnabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Enable recall before conversation"
+            },
+            "maxMessageChars": {
+                "type": "integer",
+                "default": 20000,
+                "description": "Truncate each message to this length before storage"
+            },
+            "agentIds": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                },
+                "default": [],
+                "description": "Only activate for these agent IDs. Empty means all agents."
+            }
+        },
+        "required": [
+            "baseUrl",
+            "authToken"
+        ]
+    }
+}
