@@ -355,6 +355,7 @@ const dashboardHTML = `<!DOCTYPE html>
 
     <script>
         let currentKind = '';
+        let memoCache = {};
 
         async function loadStats() {
             try {
@@ -411,16 +412,19 @@ const dashboardHTML = `<!DOCTYPE html>
                     return;
                 }
 
+                // 存入缓存，避免转义地狱
+                data.forEach(m => { memoCache[m.id] = m; });
+
                 tbody.innerHTML = data.map(m => {
                     const date = new Date(m.created_at).toLocaleString();
-                    const preview = m.content.length > 100 ? m.content.substring(0, 100) + '...' : m.content;
+                    const preview = m.content.length > 80 ? m.content.substring(0, 80).replace(/</g,'&lt;') + '...' : m.content.replace(/</g,'&lt;');
                     const kindClass = 'badge-' + (m.kind || 'conversation');
                     return `
                         <tr>
                             <td style="color: #94a3b8">${date}</td>
                             <td><span class="badge ${kindClass}">${m.kind || 'CONV'}</span></td>
-                            <td title="${m.content.replace(/"/g, '&quot;')}">${preview}</td>
-                            <td><span class="btn-view" onclick='showDetail(${JSON.stringify(m).replace(/'/g, "\\\\'")})'>查看详情</span></td>
+                            <td>${preview}</td>
+                            <td><span class="btn-view" onclick="showDetailById('${m.id}')">查看详情</span></td>
                         </tr>
                     `;
                 }).join('');
@@ -430,7 +434,9 @@ const dashboardHTML = `<!DOCTYPE html>
             }
         }
 
-        function showDetail(m) {
+        function showDetailById(id) {
+            const m = memoCache[id];
+            if(!m) return;
             document.getElementById('modalKind').innerText = '记忆详情 (' + (m.kind || 'CONV') + ')';
             document.getElementById('modalID').innerText = m.id;
             document.getElementById('modalUser').innerText = m.user_id + (m.session_id ? ' @ '+m.session_id : '');
