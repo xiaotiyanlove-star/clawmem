@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -73,9 +74,14 @@ func (s *MemoryService) AddMemory(ctx context.Context, req *model.AddMemoryReque
 		Source:        req.Source,
 		Tags:          req.Tags,
 		Status:        model.StatusActive,
-		EmbedProvider: provider, // 记录是谁生成的（"cloudflare", "local", 等）
+		EmbedProvider: provider,
+		Kind:          req.Kind,
 		CreatedAt:     now,
 		UpdatedAt:     now,
+	}
+
+	if mem.Kind == "" {
+		mem.Kind = model.KindConversation
 	}
 
 	// 存入 SQLite
@@ -87,6 +93,7 @@ func (s *MemoryService) AddMemory(ctx context.Context, req *model.AddMemoryReque
 		"user_id":    mem.UserID,
 		"session_id": mem.SessionID,
 		"source":     mem.Source,
+		"kind":       mem.Kind,
 	}
 
 	// 存入向量库（显式传入此前生成的向量，跳过底层二次生成）
@@ -98,15 +105,62 @@ func (s *MemoryService) AddMemory(ctx context.Context, req *model.AddMemoryReque
 	return mem, nil
 }
 
-// SearchMemory 检索记忆
-// 流程: 接收Query -> Chromem向量检索 -> SQLite补充完整信息 -> 返回结果
+// SearchMemory 检索记忆 (分层召回与多租户安全)
+// 流程:
+// 1. 获取 Preferences (SQL, kind=preference)
+// 2. 提取 Keywords 预过滤 Summaries (SQL, kind=summary)
+//   - 如果没拿到 summary (或者没 keyword)，则 Fallback 到 GetRecentConversations
+//
+// 3. Chromem 检索 Facts (Vector)
+// 4. 合并去重 -> 排序
 func (s *MemoryService) SearchMemory(ctx context.Context, req *model.SearchMemoryRequest) ([]model.SearchResult, error) {
+	var finalResults []model.SearchResult
+	seenIDs := make(map[string]bool)
+
+	// 1. 召回 Preferences (固定最高分数 1.0)
+	prefs, err := s.sqlStore.SearchPreferences(req.UserID, 6)
+	if err == nil {
+		for _, p := range prefs {
+			if !seenIDs[p.ID] {
+				seenIDs[p.ID] = true
+				finalResults = append(finalResults, model.SearchResult{Memory: *p, Score: 1.0})
+			}
+		}
+	}
+
+	// 2. 召回 Summaries (简单分词提取关键词)
+	// 在生产可用时可以使用更复杂的分词器，此处以空格切分简单模拟关键词过滤
+	var keywords []string
+	if req.Query != "" {
+		// 简单按空格分词，以支持输入 "Go CLI" 时拆分成 ["Go", "CLI"] 匹配
+		keywords = strings.Fields(req.Query)
+	}
+
+	summaries, err := s.sqlStore.SearchSummariesByKeyword(req.UserID, keywords, 3)
+	if err == nil && len(summaries) > 0 {
+		for _, sum := range summaries {
+			if !seenIDs[sum.ID] {
+				seenIDs[sum.ID] = true
+				finalResults = append(finalResults, model.SearchResult{Memory: *sum, Score: 0.95})
+			}
+		}
+	} else if err == nil && len(summaries) == 0 {
+		// Fallback: 如果 summary 没搜到，说明关键词没命中，或者本身没有，直接补充点最近的对话上下文
+		recent, _ := s.sqlStore.GetRecentConversations(req.UserID, 5)
+		for _, rec := range recent {
+			if !seenIDs[rec.ID] {
+				seenIDs[rec.ID] = true
+				finalResults = append(finalResults, model.SearchResult{Memory: *rec, Score: 0.7})
+			}
+		}
+	}
+
+	// 3. 向量检索 (补充 Top M)
 	topK := req.TopK
 	if topK <= 0 {
 		topK = 5
 	}
-
-	// 构建过滤条件
+	// 向量库中的 metadata 过去可能没存 kind 字段，为了向前兼容旧版存储，我们在向量条件中不卡 kind=fact，在 SQLite 取得数据后再分类判断
 	whereFilter := map[string]string{
 		"user_id": req.UserID,
 	}
@@ -114,45 +168,38 @@ func (s *MemoryService) SearchMemory(ctx context.Context, req *model.SearchMemor
 		whereFilter["session_id"] = req.SessionID
 	}
 
-	// 向量检索
 	vResults, err := s.vectorStore.Query(ctx, req.Query, topK, whereFilter)
-	if err != nil {
-		return nil, fmt.Errorf("记忆检索失败: %w", err)
-	}
+	if err == nil && len(vResults) > 0 {
+		// 收集 IDs
+		var vIDs []string
+		scoreMap := make(map[string]float32)
+		for _, r := range vResults {
+			if !seenIDs[r.ID] {
+				vIDs = append(vIDs, r.ID)
+				scoreMap[r.ID] = r.Similarity
+			}
+		}
 
-	if len(vResults) == 0 {
-		return []model.SearchResult{}, nil
-	}
+		if len(vIDs) > 0 {
+			vMems, _ := s.sqlStore.GetByIDs(vIDs)
+			for _, vm := range vMems {
+				// 已被 preferences/summaries 处理的跳过；向量检索只要能拿到有效的活跃 memory 即返回，也可以专门滤掉 preferences（因为通常也不拿它算 similarity）
+				if vm.Kind != model.KindPreference && vm.Kind != model.KindSummary {
+					// 命中一次正常检索，更新 access_count 与时间
+					_ = s.sqlStore.UpdateAccessCount(vm.ID)
 
-	// 提取 ID 列表
-	ids := make([]string, len(vResults))
-	scoreMap := make(map[string]float32)
-	for i, r := range vResults {
-		ids[i] = r.ID
-		scoreMap[r.ID] = r.Similarity
-	}
-
-	// 从 SQLite 获取完整信息
-	memories, err := s.sqlStore.GetByIDs(ids)
-	if err != nil {
-		return nil, fmt.Errorf("获取记忆详情失败: %w", err)
-	}
-
-	// 组装结果（保持向量检索排序）
-	results := make([]model.SearchResult, 0, len(memories))
-	for _, id := range ids {
-		for _, m := range memories {
-			if m.ID == id {
-				results = append(results, model.SearchResult{
-					Memory: *m,
-					Score:  scoreMap[id],
-				})
-				break
+					seenIDs[vm.ID] = true
+					finalResults = append(finalResults, model.SearchResult{
+						Memory: *vm,
+						Score:  scoreMap[vm.ID],
+					})
+				}
 			}
 		}
 	}
 
-	return results, nil
+	// （如果有需要还能根据 score 排序，但分层追加本身就是按优先级排列的：preference -> summary/fallback -> vector）
+	return finalResults, nil
 }
 
 // GetMemoryCount 获取记忆总数
@@ -269,6 +316,7 @@ func (s *MemoryService) SetMemory(ctx context.Context, req *model.SetMemoryReque
 				"user_id":    existing.UserID,
 				"session_id": existing.SessionID,
 				"source":     existing.Source,
+				"kind":       existing.Kind,
 			}, vec)
 
 			return existing, nil
@@ -324,6 +372,7 @@ func (s *MemoryService) UpdateMemory(ctx context.Context, id string, req *model.
 		"user_id":    existing.UserID,
 		"session_id": existing.SessionID,
 		"source":     existing.Source,
+		"kind":       existing.Kind,
 	}, vec)
 
 	return existing, nil

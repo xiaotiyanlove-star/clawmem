@@ -7,22 +7,31 @@ const (
 	StatusActive       = "active"       // 正常活跃记忆
 	StatusConsolidated = "consolidated" // 已被 Dream 整合归档
 	StatusDream        = "dream"        // Dream 生成的精华记忆
+
+	// 记忆分类 (Kind)
+	KindFact         = "fact"         // 确定性事实
+	KindPreference   = "preference"   // 用户偏好
+	KindSummary      = "summary"      // Dream 摘要
+	KindConversation = "conversation" // 原始对话 (默认值)
 )
 
 // Memory 记忆条目数据结构
 type Memory struct {
-	ID            string     `json:"id"`
-	UserID        string     `json:"user_id"`
-	SessionID     string     `json:"session_id,omitempty"`
-	Content       string     `json:"content"`
-	Summary       string     `json:"summary,omitempty"`
-	Source        string     `json:"source,omitempty"` // 来源标识，如 "chat", "document", "dream"
-	Tags          []string   `json:"tags,omitempty"`
-	Status        string     `json:"status,omitempty"`         // active, consolidated, dream
-	EmbedProvider string     `json:"embed_provider,omitempty"` // 生成此记忆向量的具体模型/服务商 (e.g. cloudflare, local)
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
-	DeletedAt     *time.Time `json:"deleted_at,omitempty"`
+	ID             string     `json:"id"`
+	UserID         string     `json:"user_id"`
+	SessionID      string     `json:"session_id,omitempty"`
+	Content        string     `json:"content"`
+	Summary        string     `json:"summary,omitempty"`
+	Source         string     `json:"source,omitempty"` // 来源标识，如 "chat", "document", "dream"
+	Tags           []string   `json:"tags,omitempty"`
+	Status         string     `json:"status,omitempty"`         // active, consolidated, dream
+	EmbedProvider  string     `json:"embed_provider,omitempty"` // 生成此记忆向量的具体模型/服务商 (e.g. cloudflare, local)
+	Kind           string     `json:"kind,omitempty"`           // 分类: fact, preference, summary, conversation
+	AccessCount    int        `json:"access_count,omitempty"`   // 检索命中次数 (衰减控制)
+	LastAccessedAt time.Time  `json:"last_accessed_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	DeletedAt      *time.Time `json:"deleted_at,omitempty"`
 }
 
 // AddMemoryRequest 添加记忆请求
@@ -31,6 +40,7 @@ type AddMemoryRequest struct {
 	SessionID string   `json:"session_id,omitempty"`
 	Content   string   `json:"content" binding:"required"`
 	Source    string   `json:"source,omitempty"`
+	Kind      string   `json:"kind,omitempty"`
 	Tags      []string `json:"tags,omitempty"`
 }
 

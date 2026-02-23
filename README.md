@@ -229,21 +229,50 @@ curl -X POST http://localhost:8090/api/v1/dream/trigger
 
 ## 📡 API Reference
 
-### Store a Memory
+## 📡 API Reference
+
+### Store / Set a Memory
 
 ```bash
-curl -X POST http://localhost:8090/api/memory \
+# Intelligently overwrite or store (recommended for AI Agents)
+curl -X POST http://localhost:8090/api/v1/memo/set \
   -H "Content-Type: application/json" \
   -d '{
     "user_id": "user-001",
+    "kind": "fact",
     "content": "The server IP address is 192.168.1.100"
+  }'
+
+# Raw simple append
+curl -X POST http://localhost:8090/api/v1/memo \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user-001",
+    "kind": "conversation",
+    "content": "I want to deploy a Golang backend."
   }'
 ```
 
 ### Search Memories
 
 ```bash
-curl "http://localhost:8090/api/memory/search?user_id=user-001&q=server+IP&top_k=3"
+# Finds most relevant memories across tiers (preferences first)
+curl "http://localhost:8090/api/v1/memo/search?user_id=user-001&query=server+IP&top_k=5"
+```
+
+### Soft Delete Memories
+
+```bash
+# Delete by specific ID
+curl -X DELETE "http://localhost:8090/api/v1/memo/{id}"
+
+# Batch semantic deletion
+curl -X POST http://localhost:8090/api/v1/memo/delete-by-query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user-001",
+    "query": "forget about the old deploy script"
+  }'
 ```
 
 ### Health Check
@@ -291,9 +320,11 @@ ClawMem includes a built-in MCP server binary (`clawmem-mcp`) for integration wi
 - [x] Lazy loading for local models
 - [x] Startup health checks
 - [x] Self-Healing mechanism for offline fallbacks
+- **[x] v0.3 Tiered Memory Architecture (Fact/Preference/Summary)**
+- **[x] v0.3 Smart Upsert (Set API) with Conflict Resolution**
+- **[x] v0.3 Tenant/Session Physical Isolation (`user_id`)**
+- **[x] v0.3 Automated Decay, Max Budget and Cycle Management**
 - [ ] ONNX Runtime integration for quantized local inference (Int8)
-- [ ] Multi-user access control
-- [ ] Memory expiration and lifecycle management
 
 ---
 

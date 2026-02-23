@@ -39,6 +39,9 @@ type Config struct {
 	CFAccountID string
 	CFAPIToken  string
 
+	// 全局记忆存储总条数预算 (Phase 3)，超限则淘汰末尾
+	MemoryMaxCount int
+
 	// ========== Dream (记忆整合) 配置 ==========
 	// 是否启用 Dream 功能（默认 false，不影响现有逻辑）
 	DreamEnabled bool
@@ -67,6 +70,7 @@ func Load() *Config {
 	dreamEnabled, _ := strconv.ParseBool(getEnv("DREAM_ENABLED", "false"))
 	dreamMinCount, _ := strconv.Atoi(getEnv("DREAM_MIN_COUNT", "10"))
 	dreamMaxItems, _ := strconv.Atoi(getEnv("DREAM_MAX_ITEMS", "200"))
+	memoryMaxCount, _ := strconv.Atoi(getEnv("MAX_MEMORY_COUNT", "5000"))
 
 	return &Config{
 		Port:              getEnv("PORT", "8080"),
@@ -94,6 +98,8 @@ func Load() *Config {
 		DreamLLMModel: getEnv("DREAM_LLM_MODEL", ""),
 		DreamPrompt:   getEnv("DREAM_PROMPT", ""),
 		DreamMaxItems: dreamMaxItems,
+
+		MemoryMaxCount: memoryMaxCount,
 	}
 }
 

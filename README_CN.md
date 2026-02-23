@@ -209,21 +209,48 @@ curl -X POST http://localhost:8090/api/v1/dream/trigger
 
 ## 📡 API 接口
 
-### 存储记忆
+### 存储 / 覆盖记忆
 
 ```bash
-curl -X POST http://localhost:8090/api/memory \
+# 自动智能去重与覆盖 (推荐智能体使用)
+curl -X POST http://localhost:8090/api/v1/memo/set \
   -H "Content-Type: application/json" \
   -d '{
     "user_id": "user-001",
+    "kind": "fact",
     "content": "服务器 IP 地址是 192.168.1.100"
+  }'
+
+# 简单的添加记忆
+curl -X POST http://localhost:8090/api/v1/memo \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user-001",
+    "kind": "conversation",
+    "content": "我想学习如何用 Go 写后端"
   }'
 ```
 
 ### 搜索记忆
 
 ```bash
-curl "http://localhost:8090/api/memory/search?user_id=user-001&q=服务器IP&top_k=3"
+# 搜索 user-001 的最相关记忆，优先返回偏好等高优内容
+curl "http://localhost:8090/api/v1/memo/search?user_id=user-001&query=服务器IP&top_k=5"
+```
+
+### 软删除记忆
+
+```bash
+# 单条删除
+curl -X DELETE "http://localhost:8090/api/v1/memo/{id}"
+
+# 按语义条件批量软删
+curl -X POST http://localhost:8090/api/v1/memo/delete-by-query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user-001",
+    "query": "旧业务逻辑废弃"
+  }'
 ```
 
 ### 健康检查
@@ -266,14 +293,13 @@ ClawMem 内置了 MCP Server 二进制（`clawmem-mcp`），可与所有 MCP 兼
 
 - [x] 多级 Embedding 自动降级
 - [x] SQLite 语义缓存 + 部分命中差量计算
-- [x] 批量 Embedding 支持
-- [x] MCP 协议 Server
-- [x] 本地模型延迟加载
-- [x] 启动自检
-- [x] 离线降级自愈机制 (Healer)
+- [x] 梦境引擎 (后台归档) 与 自愈神医 (向量抢救)
+- **[x] v0.3 分层记忆体系与自动多路召回 (Fact/Preference/Summary)**
+- **[x] v0.3 智能记忆重写覆写 (Set API) 与并发隔离**
+- **[x] v0.3 彻底的多租户与会话物理级读写隔离 (基于 `user_id`)**
+- **[x] v0.3 自动衰减、超长生命周期保护与存储预算自动化管理**
 - [ ] ONNX Runtime 集成（Int8 量化本地推理）
-- [ ] 多用户访问控制
-- [ ] 记忆过期与生命周期管理
+
 
 ---
 

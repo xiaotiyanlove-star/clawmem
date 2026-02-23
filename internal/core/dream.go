@@ -94,6 +94,25 @@ func (ds *DreamScheduler) loop() {
 // RunDream 执行一次记忆整合（可被定时器或 API 手动触发）
 func (s *MemoryService) RunDream(ctx context.Context) error {
 	cfg := s.cfg
+
+	// 0. 执行生命周期清理与存储预算控制 (即便是 DreamDisabled 也可能会被别处触发, 当前挂载在 Dream 周期内执行)
+	if cfg.MemoryMaxCount > 0 {
+		deleted, err := s.sqlStore.EnforceMemoryBudget(cfg.MemoryMaxCount)
+		if err == nil && deleted > 0 {
+			log.Printf("[AUDIT] Deleted %d low-value memories due to MAX_MEMORY_COUNT budget (%d)", deleted, cfg.MemoryMaxCount)
+		} else if err != nil {
+			log.Printf("[WARN] EnforceMemoryBudget failed: %v", err)
+		}
+	}
+
+	// 清理 30 天未命中的废弃原始对话 (根据衰减规则: 30天未被命中 + access_count < 3 -> 自动软删除)
+	expired, err := s.sqlStore.CleanExpiredConversations(30, 3)
+	if err == nil && expired > 0 {
+		log.Printf("[AUDIT] Cleaned %d expired conversation memories (inactive for >30 days, access <3)", expired)
+	} else if err != nil {
+		log.Printf("[WARN] CleanExpiredConversations failed: %v", err)
+	}
+
 	if !cfg.DreamEnabled {
 		return fmt.Errorf("dream feature is disabled (set DREAM_ENABLED=true to enable)")
 	}
