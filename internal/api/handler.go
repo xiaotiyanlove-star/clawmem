@@ -428,30 +428,6 @@ const dashboardHTML = `<!DOCTYPE html>
                 }
                 grid.appendChild(c3);
 
-                // Card 1
-                let c1 = document.createElement('div');
-                c1.className = 'card';
-                c1.onclick = function() { filterByKind(''); };
-                c1.innerHTML = '<h3>🧊 活跃记忆总数</h3><div class="value">' + active + ' <span style="font-size: 1rem; color: #64748b;">/ ' + max + '</span></div><div class="progress-bg"><div class="progress-fill ' + fillClass + '" style="width:' + pct + '%"></div></div>';
-                grid.appendChild(c1);
-
-                // Card 2
-                let c2 = document.createElement('div');
-                c2.className = 'card';
-                c2.innerHTML = '<h3>🗑️ 遗忘/软删除区</h3><div class="value" style="color: var(--delete)">' + (data.total_deleted || 0) + '</div><div style="color: #64748b; font-size: 0.9rem; margin-top: 0.5rem;">等待引擎后台深度物理抹除...</div>';
-                grid.appendChild(c2);
-
-                // Card 3
-                let c3 = document.createElement('div');
-                c3.className = 'card';
-                c3.style.gridColumn = '1 / -1';
-                c3.style.display = 'flex';
-                c3.style.alignItems = 'center';
-                c3.style.justifyContent = 'space-around';
-                c3.style.padding = '1rem';
-                c3.innerHTML = kindsHTML || '<span style="color: #64748b">暂无分层数据</span>';
-                grid.appendChild(c3);
-
             } catch(e) {
                 console.error(e);
             }
