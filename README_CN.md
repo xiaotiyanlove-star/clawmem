@@ -76,6 +76,14 @@ graph TD
 
 ---
 
+## 🧩 生态拓展 (Integrations)
+
+ClawMem 不仅仅是一个独立服务，更是 Agent 的生态记忆组件。我们官方提供了主流框架的集成插件：
+
+- [接入 OpenClaw (插件)](integrations/openclaw/README.md) - 一键为 OpenClaw 的所有 Agent 赋予长时记忆自动抓取与召回能力。
+
+---
+
 ## ⚡ 快速开始
 
 ### 方式一：下载预编译二进制
