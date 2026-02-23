@@ -87,6 +87,7 @@ func (s *SQLiteStore) migrate() error {
 	s.db.Exec("ALTER TABLE memories ADD COLUMN status TEXT DEFAULT 'active'")
 	// 兼容旧数据库：尝试添加 embed_provider 列（已存在则忽略）
 	s.db.Exec("ALTER TABLE memories ADD COLUMN embed_provider TEXT DEFAULT ''")
+	s.db.Exec("ALTER TABLE memories ADD COLUMN deleted_at DATETIME")
 	// 兼容旧数据库：尝试添加 provider 列（已存在则忽略）
 	s.db.Exec("ALTER TABLE embedding_cache ADD COLUMN provider TEXT DEFAULT ''")
 	return nil
@@ -140,9 +141,15 @@ func (s *SQLiteStore) Insert(m *model.Memory) error {
 	return err
 }
 
-// GetByID 根据 ID 获取记忆
+// GetByID 根据 ID 获取记忆，默认排除已删除
 func (s *SQLiteStore) GetByID(id string) (*model.Memory, error) {
-	row := s.db.QueryRow(`SELECT id, user_id, session_id, content, summary, source, tags, status, embed_provider, created_at, updated_at FROM memories WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT id, user_id, session_id, content, summary, source, tags, status, embed_provider, created_at, updated_at, deleted_at FROM memories WHERE id = ? AND deleted_at IS NULL`, id)
+	return scanMemory(row)
+}
+
+// GetByIDWithDeleted 根据 ID 获取记忆，包含已删除
+func (s *SQLiteStore) GetByIDWithDeleted(id string) (*model.Memory, error) {
+	row := s.db.QueryRow(`SELECT id, user_id, session_id, content, summary, source, tags, status, embed_provider, created_at, updated_at, deleted_at FROM memories WHERE id = ?`, id)
 	return scanMemory(row)
 }
 
@@ -160,8 +167,8 @@ func (s *SQLiteStore) GetByIDs(ids []string) ([]*model.Memory, error) {
 	}
 
 	query := fmt.Sprintf(
-		`SELECT id, user_id, session_id, content, summary, source, tags, status, embed_provider, created_at, updated_at
-		FROM memories WHERE id IN (%s)`,
+		`SELECT id, user_id, session_id, content, summary, source, tags, status, embed_provider, created_at, updated_at, deleted_at
+		FROM memories WHERE id IN (%s) AND deleted_at IS NULL`,
 		strings.Join(placeholders, ","),
 	)
 
@@ -188,9 +195,9 @@ func (s *SQLiteStore) GetRecentActive(since time.Time, limit int) ([]*model.Memo
 		limit = 200
 	}
 	rows, err := s.db.Query(
-		`SELECT id, user_id, session_id, content, summary, source, tags, status, embed_provider, created_at, updated_at
+		`SELECT id, user_id, session_id, content, summary, source, tags, status, embed_provider, created_at, updated_at, deleted_at
 		FROM memories
-		WHERE status = ? AND created_at >= ?
+		WHERE status = ? AND created_at >= ? AND deleted_at IS NULL
 		ORDER BY created_at ASC
 		LIMIT ?`,
 		model.StatusActive, since.UTC().Format(time.RFC3339), limit,
@@ -273,7 +280,8 @@ func scanMemory(row *sql.Row) (*model.Memory, error) {
 	var m model.Memory
 	var tagsJSON, status, provider string
 	var createdAt, updatedAt string
-	err := row.Scan(&m.ID, &m.UserID, &m.SessionID, &m.Content, &m.Summary, &m.Source, &tagsJSON, &status, &provider, &createdAt, &updatedAt)
+	var deletedAt sql.NullString
+	err := row.Scan(&m.ID, &m.UserID, &m.SessionID, &m.Content, &m.Summary, &m.Source, &tagsJSON, &status, &provider, &createdAt, &updatedAt, &deletedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -282,6 +290,12 @@ func scanMemory(row *sql.Row) (*model.Memory, error) {
 	m.EmbedProvider = provider
 	m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	m.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	if deletedAt.Valid && deletedAt.String != "" {
+		t, err := time.Parse(time.RFC3339, deletedAt.String)
+		if err == nil {
+			m.DeletedAt = &t
+		}
+	}
 	return &m, nil
 }
 
@@ -290,7 +304,8 @@ func scanMemoryFromRows(rows *sql.Rows) (*model.Memory, error) {
 	var m model.Memory
 	var tagsJSON, status, provider string
 	var createdAt, updatedAt string
-	err := rows.Scan(&m.ID, &m.UserID, &m.SessionID, &m.Content, &m.Summary, &m.Source, &tagsJSON, &status, &provider, &createdAt, &updatedAt)
+	var deletedAt sql.NullString
+	err := rows.Scan(&m.ID, &m.UserID, &m.SessionID, &m.Content, &m.Summary, &m.Source, &tagsJSON, &status, &provider, &createdAt, &updatedAt, &deletedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -299,6 +314,12 @@ func scanMemoryFromRows(rows *sql.Rows) (*model.Memory, error) {
 	m.EmbedProvider = provider
 	m.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
 	m.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	if deletedAt.Valid && deletedAt.String != "" {
+		t, err := time.Parse(time.RFC3339, deletedAt.String)
+		if err == nil {
+			m.DeletedAt = &t
+		}
+	}
 	return &m, nil
 }
 
@@ -308,9 +329,9 @@ func (s *SQLiteStore) GetLocalMemories(limit int) ([]*model.Memory, error) {
 		limit = 100
 	}
 	rows, err := s.db.Query(
-		`SELECT id, user_id, session_id, content, summary, source, tags, status, embed_provider, created_at, updated_at
+		`SELECT id, user_id, session_id, content, summary, source, tags, status, embed_provider, created_at, updated_at, deleted_at
 		FROM memories
-		WHERE status = ? AND embed_provider = ?
+		WHERE status = ? AND embed_provider = ? AND deleted_at IS NULL
 		ORDER BY created_at ASC
 		LIMIT ?`,
 		model.StatusActive, "local", limit,
@@ -334,5 +355,54 @@ func (s *SQLiteStore) GetLocalMemories(limit int) ([]*model.Memory, error) {
 // UpdateMemoryProvider 更新单条记忆的 EmbedProvider
 func (s *SQLiteStore) UpdateMemoryProvider(id string, newProvider string) error {
 	_, err := s.db.Exec(`UPDATE memories SET embed_provider = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, newProvider, id)
+	return err
+}
+
+// SoftDeleteByID 软删除单条记忆
+func (s *SQLiteStore) SoftDeleteByID(id string) error {
+	_, err := s.db.Exec(`UPDATE memories SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
+	return err
+}
+
+// SoftDeleteByIDs 批量软删除多条记忆
+func (s *SQLiteStore) SoftDeleteByIDs(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	query := fmt.Sprintf(
+		`UPDATE memories SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id IN (%s)`,
+		strings.Join(placeholders, ","),
+	)
+	_, err := s.db.Exec(query, args...)
+	return err
+}
+
+// UpdateMemRecord 全量更新记忆记录（主要用于覆盖逻辑）
+// 支持可选地重置 deleted_at（复活逻辑）
+func (s *SQLiteStore) UpdateMemRecord(m *model.Memory, restore bool) error {
+	tagsJSON, _ := json.Marshal(m.Tags)
+	status := m.Status
+	if status == "" {
+		status = model.StatusActive
+	}
+
+	query := `UPDATE memories SET 
+		content = ?, summary = ?, source = ?, tags = ?, status = ?, embed_provider = ?, updated_at = CURRENT_TIMESTAMP`
+
+	if restore {
+		query += `, deleted_at = NULL`
+	}
+
+	query += ` WHERE id = ?`
+
+	_, err := s.db.Exec(query,
+		m.Content, m.Summary, m.Source, string(tagsJSON), status, m.EmbedProvider, m.ID,
+	)
 	return err
 }

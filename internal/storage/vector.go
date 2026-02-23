@@ -100,3 +100,11 @@ func (v *VectorStore) Query(ctx context.Context, queryText string, topK int, whe
 func (v *VectorStore) Count() int {
 	return v.collection.Count()
 }
+
+// Delete 从向量库中直接删除指定的 ID 列表的向量文档
+func (v *VectorStore) Delete(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return v.collection.Delete(ctx, nil, nil, ids...)
+}
