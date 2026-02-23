@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 
@@ -37,6 +38,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		v1.PUT("/memo/:id", h.UpdateMemory)
 		v1.POST("/dream/trigger", h.TriggerDream)
 		v1.GET("/stats", h.Stats)
+		v1.GET("/memos", h.ListMemories)
 	}
 }
 
@@ -218,10 +220,30 @@ func (h *Handler) Stats(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取统计数据失败: " + err.Error()})
 		return
 	}
-	// 将 cfg 里的上限值动态注入（服务内只能拿 service，但是这可以通过一个小技巧获取或者单独写，为了快直接返回预定义的限制值或在服务中补充读取）
-	// 因为 Handler 拿不到私有的 cfg，我们可以在 service 里补充，或者更简单的，在此处我们暂时假定它不显示百分比只显示骨架，或者这里用通过配置管理单例来拿
 	maxCount, _ := h.service.GetMemoryMaxCount()
 	c.JSON(http.StatusOK, gin.H{"data": stats, "max_count": maxCount})
+}
+
+// ListMemories 返回记忆的分页列表 (Dashboard 详情使用)
+func (h *Handler) ListMemories(c *gin.Context) {
+	kind := c.Query("kind")
+	limit := 50
+	offset := 0
+
+	// 简单的分页参数解析
+	if l := c.Query("limit"); l != "" {
+		fmt.Sscanf(l, "%d", &limit)
+	}
+	if o := c.Query("offset"); o != "" {
+		fmt.Sscanf(o, "%d", &offset)
+	}
+
+	memos, err := h.service.GetMemories(kind, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取列表失败: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": memos})
 }
 
 // Dashboard 返回纯静态的监控 HTML 页面
@@ -236,12 +258,13 @@ const dashboardHTML = `<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ClawMem 监控看板</title>
     <style>
-        :root { --bg: #0f172a; --card: #1e293b; --text: #f8fafc; --accent: #38bdf8; --delete: #f43f5e; --warn: #fbbf24; }
+        :root { --bg: #0f172a; --card: #1e293b; --text: #f8fafc; --accent: #38bdf8; --delete: #f43f5e; --warn: #fbbf24; --success: #22c55e; }
         body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 2rem; }
-        .container { max-width: 1000px; margin: 0 auto; }
+        .container { max-width: 1200px; margin: 0 auto; }
         h1 { color: var(--accent); display: flex; align-items: center; gap: 0.5rem; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-top: 2rem; }
-        .card { background: var(--card); padding: 1.5rem; border-radius: 12px; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-top: 2rem; }
+        .card { background: var(--card); padding: 1.5rem; border-radius: 12px; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); cursor: pointer; transition: transform 0.2s; }
+        .card:hover { transform: translateY(-2px); border-color: var(--accent); }
         .card h3 { margin: 0 0 1rem 0; color: #94a3b8; font-size: 1rem; }
         .card .value { font-size: 2.5rem; font-weight: bold; }
         .refresh { background: var(--accent); color: #000; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: bold; transition: opacity 0.2s;}
@@ -250,53 +273,199 @@ const dashboardHTML = `<!DOCTYPE html>
         .progress-fill { background: var(--accent); height: 100%; transition: width 0.5s ease; }
         .progress-fill.warning { background: var(--warn); }
         .progress-fill.danger { background: var(--delete); }
-        .skeleton { animation: pulse 1.5s infinite; background: #334155; height: 2rem; width: 60%; border-radius: 4px;}
+        
+        /* 表格样式 */
+        .section-title { margin-top: 3rem; display: flex; justify-content: space-between; align-items: center; }
+        .table-container { background: var(--card); border-radius: 12px; border: 1px solid #334155; margin-top: 1rem; overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th { background: #0f172a; color: #94a3b8; font-weight: 500; padding: 1rem; font-size: 0.9rem; border-bottom: 1px solid #334155; }
+        td { padding: 1rem; border-bottom: 1px solid #1e293b; font-size: 0.95rem; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: #2d3a4f; }
+        .badge { padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; text-transform: uppercase; }
+        .badge-conversation { background: #334155; color: #cbd5e1; }
+        .badge-fact { background: #1e3a8a; color: #93c5fd; }
+        .badge-preference { background: #3f1e1e; color: #fecaca; }
+        .badge-summary { background: #064e3b; color: #6ee7b7; }
+        .btn-view { color: var(--accent); cursor: pointer; text-decoration: underline; font-size: 0.9rem; }
+
+        /* 弹窗样式 */
+        .modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px); }
+        .modal-content { background: var(--card); margin: 5% auto; padding: 2rem; border-radius: 16px; width: 70%; max-width: 800px; border: 1px solid #475569; position: relative; }
+        .close { position: absolute; right: 1.5rem; top: 1rem; font-size: 2rem; cursor: pointer; color: #94a3b8; }
+        .modal-body { margin-top: 1.5rem; line-height: 1.6; }
+        pre { background: #0f172a; padding: 1.2rem; border-radius: 8px; overflow-x: auto; color: #e2e8f0; white-space: pre-wrap; word-break: break-all; border: 1px solid #1e293b; }
+
+        .skeleton { animation: pulse 1.5s infinite; background: #334155; height: 1.5rem; border-radius: 4px; }
         @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 0.3; } 100% { opacity: 0.6; } }
     </style>
 </head>
 <body>
     <div class="container">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-            <h1>🦞 ClawMem 内存治理枢纽</h1>
-            <button class="refresh" onclick="loadStats()">刷新状态</button>
+            <h1><span id="logo">🦞</span> ClawMem 内存治理枢纽</h1>
+            <button class="refresh" onclick="refreshAll()">同步刷新</button>
         </div>
         <p style="color: #64748b; margin-top: -10px;">Zero-Dependency Sovereign Memory Layer for Agents</p>
+        
         <div class="grid" id="statsGrid">
-            <div class="card"><h3>🧊 活跃记忆碎片</h3><div class="skeleton"></div></div>
-            <div class="card"><h3>🗑️ 遗忘/软删除区</h3><div class="skeleton"></div></div>
-            <div class="card" style="grid-column: 1 / -1;"><h3>📊 记忆分层健康度</h3><div class="skeleton" style="width: 100%; height: 80px;"></div></div>
+            <div class="card" onclick="filterByKind('')"><h3>🧊 活跃记忆总数</h3><div class="skeleton"></div></div>
+            <div class="card"><h3>🗑️ 遗忘/软删除度</h3><div class="skeleton"></div></div>
+            <div class="card" style="grid-column: 1 / -1;"><h3>📊 分层存储统计</h3><div class="skeleton" style="height: 60px;"></div></div>
+        </div>
+
+        <div class="section-title">
+            <h2 id="listTitle">最近记忆详情</h2>
+            <div id="filterStatus" style="color: var(--accent); font-weight: bold;"></div>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 15%">创建时间</th>
+                        <th style="width: 10%">Kind</th>
+                        <th style="width: 60%">记忆片段 (Preview)</th>
+                        <th style="width: 15%">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="memoList">
+                    <tr><td colspan="4" style="text-align:center; color:#64748b; padding: 3rem;">正在加载记忆序列...</td></tr>
+                </tbody>
+            </table>
         </div>
     </div>
+
+    <!-- 弹窗 -->
+    <div id="detailModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2 id="modalKind" style="margin-top: 0;"></h2>
+            <div class="modal-body">
+                <p style="color: #94a3b8; font-size: 0.9rem;">ID: <span id="modalID"></span> | User: <span id="modalUser"></span></p>
+                <h3>原始内容:</h3>
+                <pre id="modalContent"></pre>
+                <div id="modalMetaZone">
+                    <h3>语义摘要:</h3>
+                    <pre id="modalSummary"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
+        let currentKind = '';
+
         async function loadStats() {
             try {
-                // 加载微动效
-                document.getElementById('statsGrid').style.opacity = '0.5';
-
                 const res = await fetch('/api/v1/stats');
                 const {data, max_count} = await res.json();
                 
-                let kindsHTML = '';
-                if(data.kind_counts) {
-                    for(const [k, v] of Object.entries(data.kind_counts)) {
-                        kindsHTML += '<div style="display:flex; justify-content: space-between; margin-bottom: 8px;"><span style="color: var(--accent)">' + k + '</span><span>' + v + '</span></div>';
-                    }
-                }
-
                 let active = data.total_active || 0;
                 let max = max_count || 5000;
                 let pct = Math.min((active / max) * 100, 100).toFixed(1);
                 let fillClass = pct > 90 ? 'danger' : (pct > 75 ? 'warning' : '');
 
-                document.getElementById('statsGrid').style.opacity = '1';
-                document.getElementById('statsGrid').innerHTML = '<div class="card"><h3>🧊 活跃记忆碎片</h3><div class="value">' + active + ' / <span style="font-size: 1rem; color: #64748b;">' + max + ' Max</span></div><div class="progress-bg"><div class="progress-fill ' + fillClass + '" style="width:' + pct + '%"></div></div></div><div class="card"><h3>🗑️ 遗忘/软删除区</h3><div class="value" style="color: var(--delete)">' + (data.total_deleted || 0) + '</div><div style="color: #64748b; font-size: 0.9rem; margin-top: 0.5rem;">等待引擎深度清除...</div></div><div class="card" style="grid-column: 1 / -1;"><h3>📊 记忆分层健康度 (Kinds)</h3><div style="font-family: monospace; font-size: 1.1rem; column-count: 2; column-gap: 2rem; background: #0f172a; padding: 1rem; border-radius: 8px; border: 1px solid #1e293b;">' + (kindsHTML || '<span style="color: #64748b">暂无数据</span>') + '</div></div>';
+                let kindsHTML = '';
+                if(data.kind_counts) {
+                    for(const [k, v] of Object.entries(data.kind_counts)) {
+                        kindsHTML += '<div style="flex: 1; text-align: center; border-right: 1px solid #334155; padding: 0 10px;" onclick="event.stopPropagation(); filterByKind(\''+k+'\')">' +
+                                     '<div style="color: #94a3b8; font-size: 0.8rem; margin-bottom: 5px;">'+k.toUpperCase()+'</div>' +
+                                     '<div style="font-weight: bold; color: var(--accent)">'+v+'</div></div>';
+                    }
+                }
+
+                document.getElementById('statsGrid').innerHTML = `
+                    <div class="card" onclick="filterByKind('')">
+                        <h3>🧊 活跃记忆总数</h3>
+                        <div class="value">${active} <span style="font-size: 1rem; color: #64748b;">/ ${max}</span></div>
+                        <div class="progress-bg"><div class="progress-fill ${fillClass}" style="width:${pct}%"></div></div>
+                    </div>
+                    <div class="card">
+                        <h3>🗑️ 遗忘/软删除区</h3>
+                        <div class="value" style="color: var(--delete)">${data.total_deleted || 0}</div>
+                        <div style="color: #64748b; font-size: 0.9rem; margin-top: 0.5rem;">等待引擎后台深度物理抹除...</div>
+                    </div>
+                    <div class="card" style="grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-around; padding: 1rem;">
+                        ${kindsHTML || '<span style="color: #64748b">暂无分层数据</span>'}
+                    </div>
+                `;
             } catch(e) {
-                document.getElementById('statsGrid').style.opacity = '1';
-                document.getElementById('statsGrid').innerHTML = '<div style="color: red; grid-column: 1/-1;">无法连接 ClawMem 服务获取状态，请检查网络。</div>';
+                console.error(e);
             }
         }
+
+        async function loadMemos(kind = '') {
+            currentKind = kind;
+            document.getElementById('filterStatus').innerText = kind ? '已过滤: ' + kind : '';
+            const tbody = document.getElementById('memoList');
+            tbody.style.opacity = '0.5';
+
+            try {
+                const res = await fetch('/api/v1/memos?kind=' + kind + '&limit=20');
+                const {data} = await res.json();
+                
+                tbody.style.opacity = '1';
+                if(!data || data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#64748b; padding: 3rem;">暂无记忆数据</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = data.map(m => {
+                    const date = new Date(m.created_at).toLocaleString();
+                    const preview = m.content.length > 100 ? m.content.substring(0, 100) + '...' : m.content;
+                    const kindClass = 'badge-' + (m.kind || 'conversation');
+                    return `
+                        <tr>
+                            <td style="color: #94a3b8">${date}</td>
+                            <td><span class="badge ${kindClass}">${m.kind || 'CONV'}</span></td>
+                            <td title="${m.content.replace(/"/g, '&quot;')}">${preview}</td>
+                            <td><span class="btn-view" onclick='showDetail(${JSON.stringify(m).replace(/'/g, "\\'")})'>查看详情</span></td>
+                        </tr>
+                    `;
+                }).join('');
+            } catch(e) {
+                tbody.style.opacity = '1';
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:red;">加载列表异常</td></tr>';
+            }
+        }
+
+        function showDetail(m) {
+            document.getElementById('modalKind').innerText = '记忆详情 (' + (m.kind || 'CONV') + ')';
+            document.getElementById('modalID').innerText = m.id;
+            document.getElementById('modalUser').innerText = m.user_id + (m.session_id ? ' @ '+m.session_id : '');
+            document.getElementById('modalContent').innerText = m.content;
+            if(m.summary) {
+                document.getElementById('modalMetaZone').style.display = 'block';
+                document.getElementById('modalSummary').innerText = m.summary;
+            } else {
+                document.getElementById('modalMetaZone').style.display = 'none';
+            }
+            document.getElementById('detailModal').style.display = "block";
+        }
+
+        function closeModal() {
+            document.getElementById('detailModal').style.display = "none";
+        }
+
+        function filterByKind(k) {
+            loadMemos(k);
+        }
+
+        function refreshAll() {
+            loadStats();
+            loadMemos(currentKind);
+        }
+
+        window.onclick = function(event) {
+            if (event.target == document.getElementById('detailModal')) {
+                closeModal();
+            }
+        }
+
         loadStats();
-        setInterval(loadStats, 30000); // 30s 自动刷新
+        loadMemos();
     </script>
 </body>
 </html>`
+

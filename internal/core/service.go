@@ -207,9 +207,13 @@ func (s *MemoryService) GetMemoryCount() (int64, error) {
 	return s.sqlStore.Count()
 }
 
-// GetMemoryMaxCount 获取系统预算的活跃记忆限制
 func (s *MemoryService) GetMemoryMaxCount() (int, error) {
 	return s.cfg.MemoryMaxCount, nil
+}
+
+// GetMemories 获取记忆列表
+func (s *MemoryService) GetMemories(kind string, limit, offset int) ([]*model.Memory, error) {
+	return s.sqlStore.GetMemories(kind, limit, offset)
 }
 
 // GetStats 获取面板监控统计数据

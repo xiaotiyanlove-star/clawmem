@@ -741,3 +741,36 @@ func (s *SQLiteStore) GetStats() (map[string]interface{}, error) {
 
 	return stats, nil
 }
+
+// GetMemories 获取记忆列表 (支持过滤与分页)
+func (s *SQLiteStore) GetMemories(kind string, limit, offset int) ([]*model.Memory, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	query := `SELECT id, user_id, session_id, content, summary, source, tags, status, embed_provider, kind, access_count, last_accessed_at, created_at, updated_at, deleted_at FROM memories WHERE deleted_at IS NULL`
+	args := []interface{}{}
+
+	if kind != "" {
+		query += ` AND kind = ?`
+		args = append(args, kind)
+	}
+
+	query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []*model.Memory
+	for rows.Next() {
+		m, err := scanMemoryFromRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, m)
+	}
+	return results, rows.Err()
+}
