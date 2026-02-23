@@ -68,8 +68,10 @@ func main() {
 	// 2. 轻量鉴权中间件 (AuthZ)
 	if cfg.AuthToken != "" {
 		r.Use(func(c *gin.Context) {
-			// 如果是健康检查、大屏看板或图标，允许匿名访问
-			if c.Request.URL.Path == "/health" || c.Request.URL.Path == "/dashboard" || c.Request.URL.Path == "/favicon.ico" {
+			// 如果是健康检查、大屏看板或看板所需的统计与数据列表，允许匿名访问
+			path := c.Request.URL.Path
+			if path == "/health" || path == "/dashboard" || path == "/favicon.ico" ||
+				path == "/api/v1/stats" || path == "/api/v1/memos" {
 				c.Next()
 				return
 			}
