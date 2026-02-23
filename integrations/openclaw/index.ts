@@ -22,6 +22,21 @@ function extractText(content: any): string {
   return "";
 }
 
+function cleanUserContent(text: string): string {
+  if (!text) return "";
+  const recallMarker = "## ClawMem Recall";
+  const markerIdx = text.indexOf(recallMarker);
+  if (markerIdx !== -1) {
+    const endMarker = "Current query takes priority.\n";
+    const endIdx = text.indexOf(endMarker, markerIdx);
+    if (endIdx !== -1) {
+      return (text.slice(0, markerIdx) + text.slice(endIdx + endMarker.length)).trim();
+    }
+    return text.slice(0, markerIdx).trim();
+  }
+  return text;
+}
+
 function pad2(v: number): string {
   return String(v).padStart(2, "0");
 }
@@ -239,8 +254,16 @@ export default {
           for (const msg of event.messages) {
             const role = msg?.role;
             if (!role || role === "system") continue;
-            const content = extractText(msg?.content);
+            let content = extractText(msg?.content);
             if (!content) continue;
+
+            // 清洗由本插件注入的先验召回上下文
+            if (role === "user") {
+              content = cleanUserContent(content);
+              // 如果清理完后该消息为空了，则跳过
+              if (!content) continue;
+            }
+
             msgs.push({ role, content: truncate(content, cfg.maxMessageChars) });
           }
           return msgs;
