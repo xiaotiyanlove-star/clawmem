@@ -68,8 +68,8 @@ func main() {
 	// 2. 轻量鉴权中间件 (AuthZ)
 	if cfg.AuthToken != "" {
 		r.Use(func(c *gin.Context) {
-			// 如果是健康检查或大屏看板，允许白名单匿名访问
-			if c.Request.URL.Path == "/health" || c.Request.URL.Path == "/dashboard" {
+			// 如果是健康检查、大屏看板或图标，允许匿名访问
+			if c.Request.URL.Path == "/health" || c.Request.URL.Path == "/dashboard" || c.Request.URL.Path == "/favicon.ico" {
 				c.Next()
 				return
 			}
@@ -92,6 +92,11 @@ func main() {
 
 	handler := api.NewHandler(service)
 	handler.RegisterRoutes(r)
+
+	// 屏蔽浏览器默认的 favicon 404 错误
+	r.GET("/favicon.ico", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
 
 	// 优雅退出
 	go func() {

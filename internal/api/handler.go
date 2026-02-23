@@ -362,22 +362,71 @@ const dashboardHTML = `<!DOCTYPE html>
                 const res = await fetch('/api/v1/stats');
                 const {data, max_count} = await res.json();
                 
+                const grid = document.getElementById('statsGrid');
+                grid.innerHTML = '';
+
                 let active = data.total_active || 0;
                 let max = max_count || 5000;
                 let pct = Math.min((active / max) * 100, 100).toFixed(1);
                 let fillClass = pct > 90 ? 'danger' : (pct > 75 ? 'warning' : '');
 
-                let kindsHTML = '';
-                if(data.kind_counts) {
-                    for(const [k, v] of Object.entries(data.kind_counts)) {
-                        kindsHTML += '<div style="flex: 1; text-align: center; border-right: 1px solid #334155; padding: 0 10px;" onclick="event.stopPropagation(); filterByKind(\\''+k+'\\')">' +
-                                     '<div style="color: #94a3b8; font-size: 0.8rem; margin-bottom: 5px;">'+k.toUpperCase()+'</div>' +
-                                     '<div style="font-weight: bold; color: var(--accent)">'+v+'</div></div>';
-                    }
-                }
+                // Card 1
+                let c1 = document.createElement('div');
+                c1.className = 'card';
+                c1.onclick = function() { filterByKind(''); };
+                c1.innerHTML = '<h3>🧊 活跃记忆总数</h3><div class="value">' + active + ' <span style="font-size: 1rem; color: #64748b;">/ ' + max + '</span></div><div class="progress-bg"><div class="progress-fill ' + fillClass + '" style="width:' + pct + '%"></div></div>';
+                grid.appendChild(c1);
 
-                const grid = document.getElementById('statsGrid');
-                grid.innerHTML = '';
+                // Card 2
+                let c2 = document.createElement('div');
+                c2.className = 'card';
+                c2.innerHTML = '<h3>🗑️ 遗忘/软删除区</h3><div class="value" style="color: var(--delete)">' + (data.total_deleted || 0) + '</div><div style="color: #64748b; font-size: 0.9rem; margin-top: 0.5rem;">等待引擎后台深度物理抹除...</div>';
+                grid.appendChild(c2);
+
+                // Card 3
+                let c3 = document.createElement('div');
+                c3.className = 'card';
+                c3.style.gridColumn = '1 / -1';
+                c3.style.display = 'flex';
+                c3.style.alignItems = 'center';
+                c3.style.justifyContent = 'space-around';
+                c3.style.padding = '1rem';
+                
+                if (data.kind_counts && Object.keys(data.kind_counts).length > 0) {
+                    for(const [k, v] of Object.entries(data.kind_counts)) {
+                        let kd = document.createElement('div');
+                        kd.style.flex = '1';
+                        kd.style.textAlign = 'center';
+                        kd.style.borderRight = '1px solid #334155';
+                        kd.style.padding = '0 10px';
+                        kd.style.cursor = 'pointer';
+                        kd.onclick = function(e) {
+                            e.stopPropagation();
+                            filterByKind(k);
+                        };
+                        
+                        let label = document.createElement('div');
+                        label.style.color = '#94a3b8';
+                        label.style.fontSize = '0.8rem';
+                        label.style.marginBottom = '5px';
+                        label.textContent = k.toUpperCase();
+                        kd.appendChild(label);
+                        
+                        let val = document.createElement('div');
+                        val.style.fontWeight = 'bold';
+                        val.style.color = 'var(--accent)';
+                        val.textContent = v;
+                        kd.appendChild(val);
+                        
+                        c3.appendChild(kd);
+                    }
+                } else {
+                    let span = document.createElement('span');
+                    span.style.color = '#64748b';
+                    span.textContent = '暂无分层数据';
+                    c3.appendChild(span);
+                }
+                grid.appendChild(c3);
 
                 // Card 1
                 let c1 = document.createElement('div');
