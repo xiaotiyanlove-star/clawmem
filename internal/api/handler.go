@@ -420,7 +420,7 @@ const dashboardHTML = `<!DOCTYPE html>
                             <td style="color: #94a3b8">${date}</td>
                             <td><span class="badge ${kindClass}">${m.kind || 'CONV'}</span></td>
                             <td title="${m.content.replace(/"/g, '&quot;')}">${preview}</td>
-                            <td><span class="btn-view" onclick='showDetail(${JSON.stringify(m).replace(/'/g, "\\'")})'>查看详情</span></td>
+                            <td><span class="btn-view" onclick='showDetail(${JSON.stringify(m).replace(/'/g, "\\\\'")})'>查看详情</span></td>
                         </tr>
                     `;
                 }).join('');
