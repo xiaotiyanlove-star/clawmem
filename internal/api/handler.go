@@ -375,21 +375,25 @@ const dashboardHTML = `<!DOCTYPE html>
                 let pct = Math.min((active / max) * 100, 100).toFixed(1);
                 let fillClass = pct > 90 ? 'danger' : (pct > 75 ? 'warning' : '');
 
-                // Card 1
-                let c1 = document.createElement('div');
+                // -- Card 1 --
+                const c1 = document.createElement('div');
                 c1.className = 'card';
-                c1.onclick = function() { filterByKind(''); };
-                c1.innerHTML = '<h3>🧊 活跃记忆总数</h3><div class="value">' + active + ' <span style="font-size: 1rem; color: #64748b;">/ ' + max + '</span></div><div class="progress-bg"><div class="progress-fill ' + fillClass + '" style="width:' + pct + '%"></div></div>';
+                c1.onclick = () => filterByKind('');
+                c1.innerHTML = '<h3>🧊 活跃记忆总数</h3>' +
+                             '<div class="value">' + active + ' <span style="font-size: 1rem; color: #64748b;">/ ' + max + '</span></div>' +
+                             '<div class="progress-bg"><div class="progress-fill ' + fillClass + '" style="width:' + pct + '%"></div></div>';
                 grid.appendChild(c1);
 
-                // Card 2
-                let c2 = document.createElement('div');
+                // -- Card 2 --
+                const c2 = document.createElement('div');
                 c2.className = 'card';
-                c2.innerHTML = '<h3>🗑️ 遗忘/软删除区</h3><div class="value" style="color: var(--delete)">' + (data.total_deleted || 0) + '</div><div style="color: #64748b; font-size: 0.9rem; margin-top: 0.5rem;">等待引擎后台深度物理抹除...</div>';
+                c2.innerHTML = '<h3>🗑️ 遗忘/软删除区</h3>' +
+                             '<div class="value" style="color: var(--delete)">' + (data.total_deleted || 0) + '</div>' +
+                             '<div style="color: #64748b; font-size: 0.9rem; margin-top: 0.5rem;">等待引擎后台深度物理抹除...</div>';
                 grid.appendChild(c2);
 
-                // Card 3
-                let c3 = document.createElement('div');
+                // -- Card 3 --
+                const c3 = document.createElement('div');
                 c3.className = 'card';
                 c3.style.gridColumn = '1 / -1';
                 c3.style.display = 'flex';
@@ -399,43 +403,35 @@ const dashboardHTML = `<!DOCTYPE html>
                 
                 if (data.kind_counts && Object.keys(data.kind_counts).length > 0) {
                     for(const [k, v] of Object.entries(data.kind_counts)) {
-                        let kd = document.createElement('div');
+                        const kd = document.createElement('div');
                         kd.style.flex = '1';
                         kd.style.textAlign = 'center';
                         kd.style.borderRight = '1px solid #334155';
                         kd.style.padding = '0 10px';
                         kd.style.cursor = 'pointer';
-                        kd.onclick = function(e) {
-                            e.stopPropagation();
-                            filterByKind(k);
-                        };
+                        kd.onclick = (e) => { e.stopPropagation(); filterByKind(k); };
                         
-                        let label = document.createElement('div');
+                        const label = document.createElement('div');
                         label.style.color = '#94a3b8';
                         label.style.fontSize = '0.8rem';
                         label.style.marginBottom = '5px';
                         label.textContent = k.toUpperCase();
                         kd.appendChild(label);
                         
-                        let val = document.createElement('div');
-                        val.style.fontWeight = 'bold';
-                        val.style.color = 'var(--accent)';
+                        const val = document.createElement('div');
+                        val.style.fontWeight = 'bold'; val.style.color = 'var(--accent)';
                         val.textContent = v;
                         kd.appendChild(val);
-                        
                         c3.appendChild(kd);
                     }
                 } else {
-                    let span = document.createElement('span');
+                    const span = document.createElement('span');
                     span.style.color = '#64748b';
                     span.textContent = '暂无分层数据';
                     c3.appendChild(span);
                 }
                 grid.appendChild(c3);
-
-            } catch(e) {
-                console.error(e);
-            }
+            } catch(e) { console.error(e); }
         }
 
         async function loadMemos(kind = '') {
@@ -458,35 +454,30 @@ const dashboardHTML = `<!DOCTYPE html>
 
                 tbody.innerHTML = '';
                 data.forEach(m => {
-                    const date = new Date(m.created_at).toLocaleString();
-                    const rawContent = String(m.content || '');
-                    const previewText = rawContent.length > 80 ? rawContent.substring(0, 80) + '...' : rawContent;
-                    const kindStr = m.kind || 'CONV';
-                    const kindClass = 'badge-' + (m.kind || 'conversation');
-
-                    let tr = document.createElement('tr');
+                    const tr = document.createElement('tr');
                     
-                    let td1 = document.createElement('td');
+                    const td1 = document.createElement('td');
                     td1.style.color = '#94a3b8';
-                    td1.textContent = date;
+                    td1.textContent = new Date(m.created_at).toLocaleString();
                     tr.appendChild(td1);
 
-                    let td2 = document.createElement('td');
-                    let spanK = document.createElement('span');
-                    spanK.className = 'badge ' + kindClass;
-                    spanK.textContent = kindStr;
+                    const td2 = document.createElement('td');
+                    const spanK = document.createElement('span');
+                    spanK.className = 'badge badge-' + (m.kind || 'conversation');
+                    spanK.textContent = m.kind || 'CONV';
                     td2.appendChild(spanK);
                     tr.appendChild(td2);
 
-                    let td3 = document.createElement('td');
-                    td3.textContent = previewText;
+                    const td3 = document.createElement('td');
+                    const rawContent = String(m.content || '');
+                    td3.textContent = rawContent.length > 80 ? rawContent.substring(0, 80) + '...' : rawContent;
                     tr.appendChild(td3);
 
-                    let td4 = document.createElement('td');
-                    let spanV = document.createElement('span');
+                    const td4 = document.createElement('td');
+                    const spanV = document.createElement('span');
                     spanV.className = 'btn-view';
                     spanV.textContent = '查看详情';
-                    spanV.onclick = function() { showDetailById(m.id); };
+                    spanV.onclick = () => showDetailById(m.id);
                     td4.appendChild(spanV);
                     tr.appendChild(td4);
 
@@ -504,34 +495,23 @@ const dashboardHTML = `<!DOCTYPE html>
             document.getElementById('modalKind').innerText = '记忆详情 (' + (m.kind || 'CONV') + ')';
             document.getElementById('modalID').innerText = m.id;
             document.getElementById('modalUser').innerText = m.user_id + (m.session_id ? ' @ '+m.session_id : '');
-            document.getElementById('modalContent').innerText = m.content;
+            document.getElementById('modalContent').textContent = m.content;
             if(m.summary) {
                 document.getElementById('modalMetaZone').style.display = 'block';
-                document.getElementById('modalSummary').innerText = m.summary;
+                document.getElementById('modalSummary').textContent = m.summary;
             } else {
                 document.getElementById('modalMetaZone').style.display = 'none';
             }
             document.getElementById('detailModal').style.display = "block";
         }
 
-        function closeModal() {
-            document.getElementById('detailModal').style.display = "none";
-        }
+        function closeModal() { document.getElementById('detailModal').style.display = "none"; }
+        function filterByKind(k) { loadMemos(k); }
+        function refreshAll() { loadStats(); loadMemos(currentKind); }
 
-        function filterByKind(k) {
-            loadMemos(k);
-        }
-
-        function refreshAll() {
-            loadStats();
-            loadMemos(currentKind);
-        }
-
-        window.onclick = function(event) {
-            if (event.target == document.getElementById('detailModal')) {
-                closeModal();
-            }
-        }
+        window.onclick = (e) => {
+            if (e.target == document.getElementById('detailModal')) closeModal();
+        };
 
         loadStats();
         loadMemos();
