@@ -81,6 +81,7 @@ type SetMemoryRequest struct {
 	Metadata       map[string]string `json:"metadata,omitempty"` // 当前只用到 source 和 tag
 	Source         string            `json:"source,omitempty"`
 	Tags           []string          `json:"tags,omitempty"`
+	Kind           string            `json:"kind,omitempty"`
 	MatchQuery     string            `json:"match_query,omitempty"`     // 可选：匹配相似内容
 	MatchThreshold float32           `json:"match_threshold,omitempty"` // 默认 0.85
 }
@@ -90,5 +91,6 @@ type UpdateMemoryRequest struct {
 	Content  string            `json:"content" binding:"required"`
 	Metadata map[string]string `json:"metadata,omitempty"`
 	Source   string            `json:"source,omitempty"`
+	Kind     string            `json:"kind,omitempty"`
 	Tags     []string          `json:"tags,omitempty"`
 }

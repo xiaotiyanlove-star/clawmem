@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -16,15 +17,20 @@ import (
 const defaultDreamPrompt = `You are a memory consolidation engine. Your job is to review a batch of raw memory fragments from an AI agent's daily interactions and produce a concise, high-quality set of consolidated memories.
 
 Rules:
-1. Extract only factual, actionable information (user preferences, decisions, technical facts, project status, important events).
-2. Discard greetings, filler words, acknowledgments, and trivial chatter.
-3. If two memories contradict each other, keep the NEWER one and note the change (e.g., "User preference updated: now prefers X over Y").
-4. Merge related fragments into single coherent statements.
-5. Each output line should be a standalone fact that makes sense without context.
-6. Output one consolidated memory per line, prefixed with "- ".
-7. If there is nothing worth remembering, output exactly: NOTHING_TO_CONSOLIDATE
-8. Keep the original language of the memories (don't translate).
-9. Maximum 20 consolidated memories per batch.`
+1. Extract factual information (server IP, personal details, system states) and user preferences.
+2. If two memories contradict each other, keep the NEWER one and note the change.
+3. Merge related fragments into single coherent summaries.
+4. If there is nothing worth remembering, output exactly: NOTHING_TO_CONSOLIDATE
+5. MUST output in the following JSON format ONLY, without any markdown code block wrap:
+{
+  "consolidated": ["Summary of the event 1", "Summary of the event 2"],
+  "preferences": [
+    {"text": "User loves Go programming", "type": "explicit"}
+  ],
+  "facts": [
+    {"text": "Server IP is 5.6.7.8", "supersedes": "1.2.3.4"}
+  ]
+}`
 
 // DreamScheduler 管理 Dream 定时任务的调度器
 type DreamScheduler struct {
@@ -145,11 +151,10 @@ func (s *MemoryService) RunDream(ctx context.Context) error {
 	// 记录 Dream 日志
 	logID, _ := s.sqlStore.LogDreamStart(time.Now().UTC(), len(memories))
 
-	// 2. 组装 Prompt
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("The following are %d raw memory fragments collected in the last %s. Please consolidate them:\n\n", len(memories), window))
-	for i, m := range memories {
-		sb.WriteString(fmt.Sprintf("[%d] (%s) %s\n", i+1, m.CreatedAt.Format("2006-01-02 15:04"), m.Content))
+	// 为了保证多租户与多会话读写隔离，Dream 必须按 user_id 分组隔离处理
+	userG := make(map[string][]*model.Memory)
+	for _, m := range memories {
+		userG[m.UserID] = append(userG[m.UserID], m)
 	}
 
 	systemPrompt := cfg.DreamPrompt
@@ -157,94 +162,138 @@ func (s *MemoryService) RunDream(ctx context.Context) error {
 		systemPrompt = defaultDreamPrompt
 	}
 
-	// 3. 调用 LLM
-	result, err := s.llmClient.Chat(ctx, systemPrompt, sb.String(), cfg.DreamLLMBase, cfg.DreamLLMKey, cfg.DreamLLMModel)
-	if err != nil {
-		errMsg := fmt.Sprintf("LLM call failed: %v", err)
-		s.sqlStore.LogDreamFinish(logID, 0, errMsg)
-		return fmt.Errorf("dream LLM call failed: %w", err)
+	type DreamOutput struct {
+		Consolidated []string `json:"consolidated"`
+		Preferences  []struct {
+			Text string `json:"text"`
+		} `json:"preferences"`
+		Facts []struct {
+			Text       string `json:"text"`
+			Supersedes string `json:"supersedes"`
+		} `json:"facts"`
 	}
 
-	// 4. 解析结果
-	if strings.TrimSpace(result) == "NOTHING_TO_CONSOLIDATE" {
-		log.Println("[DREAM] LLM determined nothing worth consolidating.")
-		s.sqlStore.LogDreamFinish(logID, 0, "")
-		return nil
-	}
+	totalOutput := 0
+	hasError := false
 
-	// 解析每一行 "- xxx" 为独立的精华记忆
-	lines := strings.Split(result, "\n")
-	var consolidated []string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
+	for userID, uMems := range userG {
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("The following are %d raw memory fragments collected from user '%s'. Please consolidate them:\n\n", len(uMems), userID))
+		for i, m := range uMems {
+			sb.WriteString(fmt.Sprintf("[%d] (%s) %s\n", i+1, m.CreatedAt.Format("2006-01-02 15:04"), m.Content))
 		}
-		// 去掉 "- " 前缀（如果有）
-		line = strings.TrimPrefix(line, "- ")
-		line = strings.TrimSpace(line)
-		if line != "" {
-			consolidated = append(consolidated, line)
-		}
-	}
 
-	if len(consolidated) == 0 {
-		log.Println("[DREAM] No consolidated memories extracted.")
-		s.sqlStore.LogDreamFinish(logID, 0, "")
-		return nil
-	}
-
-	log.Printf("[DREAM] Consolidated %d memories into %d entries.", len(memories), len(consolidated))
-
-	// 5. 存入精华记忆
-	now := time.Now().UTC()
-	dateTag := now.Format("2006-01-02")
-	for _, content := range consolidated {
-		// 生成精华记忆的词向量并获取 provider
-		vec, provider, err := s.embedManager.GetEmbedding(ctx, content)
+		result, err := s.llmClient.Chat(ctx, systemPrompt, sb.String(), cfg.DreamLLMBase, cfg.DreamLLMKey, cfg.DreamLLMModel)
 		if err != nil {
-			log.Printf("[DREAM] Failed to generate embedding for consolidated memory: %v", err)
+			log.Printf("[DREAM] LLM call failed for user %s: %v", userID, err)
+			hasError = true
 			continue
 		}
 
-		dreamMem := &model.Memory{
-			ID:            uuid.New().String(),
-			UserID:        "default",
-			Content:       content,
-			Source:        "dream",
-			Tags:          []string{"dream", "consolidated", dateTag},
-			Status:        model.StatusDream,
-			EmbedProvider: provider,
-			CreatedAt:     now,
-			UpdatedAt:     now,
-		}
-
-		if err := s.sqlStore.Insert(dreamMem); err != nil {
-			log.Printf("[DREAM] Failed to store consolidated memory: %v", err)
+		if strings.TrimSpace(result) == "NOTHING_TO_CONSOLIDATE" {
+			log.Printf("[DREAM] User %s: LLM determined nothing worth consolidating.", userID)
 			continue
 		}
 
-		// 同时写入向量库，使精华记忆可被语义检索
-		metadata := map[string]string{
-			"user_id": dreamMem.UserID,
-			"source":  "dream",
-			"status":  model.StatusDream,
+		// 移除可能的 Markdown 包装
+		result = strings.TrimPrefix(strings.TrimSpace(result), "```json")
+		result = strings.TrimSuffix(result, "```")
+		result = strings.TrimSpace(result)
+
+		var output DreamOutput
+		err = json.Unmarshal([]byte(result), &output)
+
+		// Resilience: JSON 解析降级
+		if err != nil {
+			log.Printf("[WARN] LLM JSON parsing failed for user %s, degraded to text extraction. parsing error: %v", userID, err)
+
+			// 降级使用旧版文本按行拆分逻辑，存储为 kind=summary 退化兜底
+			lines := strings.Split(result, "\n")
+			for _, line := range lines {
+				line = strings.TrimPrefix(strings.TrimSpace(line), "- ")
+				if line != "" && !strings.HasPrefix(line, "{") && !strings.HasPrefix(line, "[") {
+					output.Consolidated = append(output.Consolidated, line)
+				}
+			}
 		}
-		if err := s.vectorStore.Add(ctx, dreamMem.ID, content, metadata, vec); err != nil {
-			log.Printf("[DREAM] Failed to store vector for consolidated memory: %v", err)
+
+		now := time.Now().UTC()
+		dateTag := now.Format("2006-01-02")
+
+		// 统一处理生成的记忆结果，为了简化向量并发，串行处理
+		saveGenMem := func(content string, kind string, tags []string, supersedes string) {
+			if content == "" {
+				return
+			}
+			tags = append(tags, "dream", "consolidated", dateTag)
+
+			// 如果有 supersedes，执行 set_memory 逻辑覆盖旧记录
+			if supersedes != "" {
+				tags = append(tags, "conflict_resolved")
+				_, _ = s.SetMemory(ctx, &model.SetMemoryRequest{
+					UserID:         userID,
+					Content:        content,
+					MatchQuery:     supersedes,
+					MatchThreshold: 0.75,
+					Kind:           kind,
+					Source:         "dream",
+					Tags:           tags,
+				})
+				totalOutput++
+				return
+			}
+
+			// 否则直接写入
+			vec, provider, vErr := s.embedManager.GetEmbedding(ctx, content)
+			if vErr != nil {
+				return
+			}
+			newID := uuid.New().String()
+			mem := &model.Memory{
+				ID:            newID,
+				UserID:        userID,
+				Content:       content,
+				Source:        "dream",
+				Kind:          kind,
+				Tags:          tags,
+				Status:        model.StatusDream,
+				EmbedProvider: provider,
+				CreatedAt:     now,
+				UpdatedAt:     now,
+			}
+			_ = s.sqlStore.Insert(mem)
+			_ = s.vectorStore.Add(ctx, mem.ID, content, map[string]string{
+				"user_id": userID,
+				"source":  "dream",
+				"status":  model.StatusDream,
+				"kind":    kind,
+			}, vec)
+			totalOutput++
 		}
+
+		for _, summ := range output.Consolidated {
+			saveGenMem(summ, model.KindSummary, nil, "")
+		}
+		for _, pref := range output.Preferences {
+			saveGenMem(pref.Text, model.KindPreference, nil, "")
+		}
+		for _, fact := range output.Facts {
+			saveGenMem(fact.Text, model.KindFact, nil, fact.Supersedes)
+		}
+
+		// 标记原始记忆为已整合
+		var idsToMark []string
+		for _, m := range uMems {
+			idsToMark = append(idsToMark, m.ID)
+		}
+		_ = s.sqlStore.MarkConsolidated(idsToMark)
 	}
 
-	// 6. 标记原始记忆为已整合
-	ids := make([]string, len(memories))
-	for i, m := range memories {
-		ids[i] = m.ID
+	statusMsg := ""
+	if hasError {
+		statusMsg = "completed with some user errors"
 	}
-	if err := s.sqlStore.MarkConsolidated(ids); err != nil {
-		log.Printf("[DREAM] Failed to mark memories as consolidated: %v", err)
-	}
-
-	s.sqlStore.LogDreamFinish(logID, len(consolidated), "")
-	log.Printf("[DREAM] Dream cycle complete. %d -> %d memories.", len(memories), len(consolidated))
+	s.sqlStore.LogDreamFinish(logID, totalOutput, statusMsg)
+	log.Printf("[DREAM] Dream cycle complete. Input: %d -> Output: %d memories.", len(memories), totalOutput)
 	return nil
 }

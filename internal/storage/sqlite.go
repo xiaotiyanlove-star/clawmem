@@ -13,9 +13,21 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// DBExecutor 接口用于支持 DB 或 Tx
+type DBExecutor interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
+// writeOp 代表一个可以被延后和批量执行的数据库写入操作
+type writeOp func(DBExecutor) error
+
 // SQLiteStore 封装 SQLite 数据库操作
 type SQLiteStore struct {
-	db *sql.DB
+	db        *sql.DB
+	writeChan chan writeOp
+	closeChan chan struct{}
 }
 
 // NewSQLiteStore 创建并初始化 SQLite 存储
@@ -33,12 +45,65 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 
 	db.SetMaxOpenConns(1) // 防止并发写入时报 database is locked
 
-	store := &SQLiteStore{db: db}
+	store := &SQLiteStore{
+		db:        db,
+		writeChan: make(chan writeOp, 5000), // 5000 缓冲队列
+		closeChan: make(chan struct{}),
+	}
 	if err := store.migrate(); err != nil {
 		return nil, fmt.Errorf("数据库迁移失败: %w", err)
 	}
 
+	// 启动后台单协程异步批量缓冲写入监听
+	go store.writeWorker()
+
 	return store, nil
+}
+
+func (s *SQLiteStore) writeWorker() {
+	const maxBatchSize = 100
+	const maxWait = 50 * time.Millisecond // 如果队列不够，最多等 50ms 一起刷
+
+	timer := time.NewTimer(maxWait)
+	defer timer.Stop()
+
+	var batch []writeOp
+
+	flushBatch := func() {
+		if len(batch) == 0 {
+			return
+		}
+		tx, err := s.db.Begin()
+		if err != nil {
+			// 如果开启事务失败，退化为逐条单机执行
+			for _, op := range batch {
+				_ = op(s.db)
+			}
+		} else {
+			for _, op := range batch {
+				_ = op(tx)
+			}
+			_ = tx.Commit()
+		}
+		batch = batch[:0] // 清空切片复用
+	}
+
+	for {
+		select {
+		case <-s.closeChan:
+			flushBatch()
+			return
+		case op := <-s.writeChan:
+			batch = append(batch, op)
+			if len(batch) >= maxBatchSize {
+				flushBatch()
+				timer.Reset(maxWait)
+			}
+		case <-timer.C:
+			flushBatch()
+			timer.Reset(maxWait)
+		}
+	}
 }
 
 // migrate 执行数据库建表
@@ -140,7 +205,7 @@ func (s *SQLiteStore) SetCachedEmbedding(hash string, vector []float32, provider
 	return err
 }
 
-// Insert 插入一条记忆
+// Insert 高频插入通过写缓冲队列异步批量入库 (Phase 8 加强)
 func (s *SQLiteStore) Insert(m *model.Memory) error {
 	tagsJSON, _ := json.Marshal(m.Tags)
 	status := m.Status
@@ -154,12 +219,25 @@ func (s *SQLiteStore) Insert(m *model.Memory) error {
 	if m.LastAccessedAt.IsZero() {
 		m.LastAccessedAt = time.Now().UTC()
 	}
-	_, err := s.db.Exec(
-		`INSERT INTO memories (id, user_id, session_id, content, summary, source, tags, status, embed_provider, kind, access_count, last_accessed_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.UserID, m.SessionID, m.Content, m.Summary, m.Source, string(tagsJSON), status, m.EmbedProvider, kind, m.AccessCount, m.LastAccessedAt, m.CreatedAt, m.UpdatedAt,
-	)
-	return err
+
+	// 将写动作包装为一个闭包压入队列
+	op := func(executor DBExecutor) error {
+		_, err := executor.Exec(
+			`INSERT INTO memories (id, user_id, session_id, content, summary, source, tags, status, embed_provider, kind, access_count, last_accessed_at, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			m.ID, m.UserID, m.SessionID, m.Content, m.Summary, m.Source, string(tagsJSON), status, m.EmbedProvider, kind, m.AccessCount, m.LastAccessedAt, m.CreatedAt, m.UpdatedAt,
+		)
+		return err
+	}
+
+	select {
+	case s.writeChan <- op:
+		// 成功压入缓冲，立刻结束不阻塞
+	default:
+		// 缓冲满了，退化为立刻阻塞执行
+		return op(s.db)
+	}
+	return nil
 }
 
 // GetByID 根据 ID 获取记忆，默认排除已删除
@@ -291,8 +369,13 @@ func (s *SQLiteStore) Count() (int64, error) {
 	return count, err
 }
 
-// Close 关闭数据库连接
+// Close 关闭数据库连接并优雅退出缓冲协程
 func (s *SQLiteStore) Close() error {
+	if s.closeChan != nil {
+		close(s.closeChan) // 触发剩余 Batch flush
+	}
+	// 给缓冲刷盘留下最后的时间窗口
+	time.Sleep(100 * time.Millisecond)
 	return s.db.Close()
 }
 
@@ -444,10 +527,21 @@ func (s *SQLiteStore) SearchSummariesByKeyword(userID string, keywords []string,
 	return results, rows.Err()
 }
 
-// UpdateAccessCount 更新记忆访问次数与时间
+// UpdateAccessCount 高频异步访问次数衰减更新 (Phase 8 加强)
 func (s *SQLiteStore) UpdateAccessCount(id string) error {
-	_, err := s.db.Exec(`UPDATE memories SET access_count = access_count + 1, last_accessed_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
-	return err
+	op := func(executor DBExecutor) error {
+		_, err := executor.Exec(`
+			UPDATE memories SET access_count = access_count + 1, last_accessed_at = CURRENT_TIMESTAMP
+			WHERE id = ?`, id)
+		return err
+	}
+
+	select {
+	case s.writeChan <- op:
+	default:
+		return op(s.db)
+	}
+	return nil
 }
 
 // GetRecentConversations 获取最近的原生对话记录，主要作为 Fallback 降级返回
@@ -613,4 +707,37 @@ func (s *SQLiteStore) EnforceMemoryBudget(budget int) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+// GetStats 返回系统的整体统计情况 (供给 Dashboard 面板使用)
+func (s *SQLiteStore) GetStats() (map[string]interface{}, error) {
+	stats := make(map[string]interface{})
+
+	var totalActive int64
+	s.db.QueryRow("SELECT COUNT(*) FROM memories WHERE deleted_at IS NULL").Scan(&totalActive)
+	stats["total_active"] = totalActive
+
+	var totalDeleted int64
+	s.db.QueryRow("SELECT COUNT(*) FROM memories WHERE deleted_at IS NOT NULL").Scan(&totalDeleted)
+	stats["total_deleted"] = totalDeleted
+
+	// 按 kind 统计活跃的记忆
+	kindCounts := make(map[string]int64)
+	rows, err := s.db.Query("SELECT kind, COUNT(*) FROM memories WHERE deleted_at IS NULL GROUP BY kind")
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var kind string
+			var count int64
+			if err := rows.Scan(&kind, &count); err == nil {
+				if kind == "" {
+					kind = "unknown"
+				}
+				kindCounts[kind] = count
+			}
+		}
+	}
+	stats["kind_counts"] = kindCounts
+
+	return stats, nil
 }

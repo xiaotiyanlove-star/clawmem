@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -57,6 +58,37 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(gin.Logger())
+
+	// 1. Payload 尺寸防御中间件 (DDoS 防御，限定 2MB)
+	r.Use(func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 2<<20)
+		c.Next()
+	})
+
+	// 2. 轻量鉴权中间件 (AuthZ)
+	if cfg.AuthToken != "" {
+		r.Use(func(c *gin.Context) {
+			// 如果是健康检查或大屏看板，允许白名单匿名访问
+			if c.Request.URL.Path == "/health" || c.Request.URL.Path == "/dashboard" {
+				c.Next()
+				return
+			}
+			// 优先读取 Authorization 头，其次读取 X-API-KEY
+			token := c.GetHeader("Authorization")
+			if len(token) > 7 && token[:7] == "Bearer " {
+				token = token[7:]
+			}
+			if token == "" {
+				token = c.GetHeader("X-API-KEY")
+			}
+			if token != cfg.AuthToken {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: invalid or missing API token"})
+				c.Abort()
+				return
+			}
+			c.Next()
+		})
+	}
 
 	handler := api.NewHandler(service)
 	handler.RegisterRoutes(r)

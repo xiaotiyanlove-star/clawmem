@@ -86,6 +86,8 @@ func TestSetMemory_ConcurrentRaceCondition(t *testing.T) {
 	}
 	wg.Wait()
 
+	time.Sleep(150 * time.Millisecond) // Wait for async writes to flush
+
 	// 验证：最后系统中活跃的、具有该语义的记忆，由于并发机制，最起码应没有死锁崩溃，并在多次替换后依然能提供有效记录。
 	// (在乐观 Delete+Add 的实现下，并发会有一定的乱序和互相替换，不追求绝对唯一但应全部成功且查询有结果)
 	var successCount int
@@ -141,6 +143,8 @@ func TestTieredSearch_Isolation_Fallback(t *testing.T) {
 		Kind:    model.KindPreference,
 		Content: "I like Python",
 	})
+
+	time.Sleep(150 * time.Millisecond) // Wait for async writes to flush
 
 	// 1. 测试 User1 的混合召回
 	// 预期: 必须召回 preference，同时召回 summary(预过滤)，以及可能召回 fallback 的 conversation

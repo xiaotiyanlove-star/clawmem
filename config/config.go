@@ -10,6 +10,9 @@ type Config struct {
 	// 服务监听端口
 	Port string
 
+	// 全局 API 鉴权 Token (空则不鉴权)
+	AuthToken string
+
 	// SQLite 数据库文件路径
 	DBPath string
 
@@ -74,12 +77,13 @@ func Load() *Config {
 
 	return &Config{
 		Port:              getEnv("PORT", "8080"),
+		AuthToken:         getEnv("AUTH_TOKEN", ""),
 		DBPath:            getEnv("DB_PATH", "./data/clawmem.db"),
 		VectorDBPath:      getEnv("VECTOR_DB_PATH", "./data/vectors"),
-		EmbedAPIBase:      getEnv("EMBED_API_BASE", "https://api.openai.com/v1"),
+		EmbedAPIBase:      getValidURL("EMBED_API_BASE", "https://api.openai.com/v1"),
 		EmbedAPIKey:       getEnv("EMBED_API_KEY", ""),
 		EmbedModel:        getEnv("EMBED_MODEL", "text-embedding-3-small"),
-		LLMAPIBase:        getEnv("LLM_API_BASE", "https://api.openai.com/v1"),
+		LLMAPIBase:        getValidURL("LLM_API_BASE", "https://api.openai.com/v1"),
 		LLMAPIKey:         getEnv("LLM_API_KEY", ""),
 		LLMModel:          getEnv("LLM_MODEL", "gpt-4o-mini"),
 		DisableLLMSummary: disableSummary,
@@ -108,4 +112,18 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// getValidURL 获取环境变量并验证是否是合法的 http/https URL
+func getValidURL(key, fallback string) string {
+	raw := getEnv(key, fallback)
+	if raw == "" {
+		return fallback
+	}
+	// 简单防御 SSRF/脏数据，必须以 http 打头
+	if len(raw) < 4 || (raw[:4] != "http" && raw[:5] != "https") {
+		// Log error or panic ideally, but here we fallback for resilience
+		return fallback
+	}
+	return raw
 }

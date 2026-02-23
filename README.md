@@ -30,13 +30,11 @@ Running a smart AI Agent usually requires a **Vector Database** and an **Embeddi
 
 - 🪶 **Featherlight** — Pure Go, statically compiled. Single binary **~15MB**, memory usage **<20MB**. Runs on the cheapest VPS.
 - 💰 **Zero Cost Embeddings** — Cloudflare Workers AI free tier provides high-quality semantic understanding at no cost.
-- 🛡️ **Bulletproof Resilience** — 3-tier automatic fallback: Cloudflare → OpenAI Compatible → Local model. Never crashes, never stops.
-- ⚡ **Smart Caching** — Built-in SQLite semantic cache with partial cache hit (diff) logic. Repeated text = zero API calls.
-- 🔄 **Batch Processing** — Native batch embedding support to minimize HTTP roundtrips.
-- 🔌 **MCP Protocol** — Built-in MCP server for seamless integration with Claude Desktop, OpenClaw, and other MCP clients.
-- 🧠 **Lazy Loading** — Local model loads only when needed, keeping memory footprint minimal during cloud-first operation.
-- 🏥 **Health Checks** — Automatic provider health checks on startup. Unhealthy providers are marked down immediately.
-- 💤 **Dream Engine** — Background auto-consolidation of memories. Compresses noisy chat logs into high-quality, conflict-resolved facts via LLM.
+- 🛡️ **Isolation & Security** — Native support for tenant-level physical isolation via `user_id`. Built-in `AUTH_TOKEN` authentication and protection against SSRF/Over-Payload attacks.
+- ⚡ **High Concurrency & Caching** — Built-in SQLite semantic cache, refactored with a **Go-Channel async batch write queue** to solve high-frequency concurrency locks.
+- 🔌 **Omnipotent MCP Protocol** — Built-in MCP Server providing a full suite of Agent memory tools: `add_memory`, `search_memory`, `set_memory`, `delete_memory`, `get_preferences`.
+- 💤 **Dream Engine** — Background auto-consolidation of memories via structured JSON. It not only extracts summaries but automatically resolves user preference conflicts via a `supersedes` mechanism.
+- 📊 **Visual Dashboard** — Real-time `/dashboard` provides a static, beautiful memory usage alert screen and health monitoring without any frontend dependencies.
 - 🛠️ **Self-Healing** — Background auto-upgrade of "local dialect" vectors to high-quality cloud embeddings once network restores. No more "ghost data".
 
 ---
@@ -124,8 +122,10 @@ Configuration is done via environment variables or a `.env` file. See [`.env.exa
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `PORT` | `8090` | HTTP API listening port |
+| `AUTH_TOKEN` | — | *(Highly Recommended)* Validation key for API requests and Dashboard. Without this, your API is fully exposed. |
 | `DB_PATH` | `data/clawmem.db` | SQLite database path (raw text + embedding cache) |
 | `VECTOR_DB_PATH` | `data/vectors` | Chromem-go vector index directory |
+| `MAX_MEMORY_COUNT` | `5000` | Global memory threshold. Memories exceeding this will trigger aggressive access-rate depreciation. |
 
 ### Embedding Strategy
 
@@ -231,11 +231,14 @@ curl -X POST http://localhost:8090/api/v1/dream/trigger
 
 ## 📡 API Reference
 
+*(If `AUTH_TOKEN` is configured, include `X-API-KEY: <token>` or `Authorization: Bearer <token>` in headers)*
+
 ### Store / Set a Memory
 
 ```bash
 # Intelligently overwrite or store (recommended for AI Agents)
 curl -X POST http://localhost:8090/api/v1/memo/set \
+  -H "X-API-KEY: your_auth_token" \
   -H "Content-Type: application/json" \
   -d '{
     "user_id": "user-001",
@@ -245,6 +248,7 @@ curl -X POST http://localhost:8090/api/v1/memo/set \
 
 # Raw simple append
 curl -X POST http://localhost:8090/api/v1/memo \
+  -H "X-API-KEY: your_auth_token" \
   -H "Content-Type: application/json" \
   -d '{
     "user_id": "user-001",
@@ -257,17 +261,25 @@ curl -X POST http://localhost:8090/api/v1/memo \
 
 ```bash
 # Finds most relevant memories across tiers (preferences first)
-curl "http://localhost:8090/api/v1/memo/search?user_id=user-001&query=server+IP&top_k=5"
+curl -H "X-API-KEY: your_auth_token" "http://localhost:8090/api/v1/memo/search?user_id=user-001&query=server+IP&top_k=5"
+```
+
+### Visual Dashboard
+
+Start the server and visit the dashboard in your browser to view the real-time memory stats:
+```
+http://localhost:8090/dashboard
 ```
 
 ### Soft Delete Memories
 
 ```bash
 # Delete by specific ID
-curl -X DELETE "http://localhost:8090/api/v1/memo/{id}"
+curl -X DELETE -H "X-API-KEY: your_auth_token" "http://localhost:8090/api/v1/memo/{id}"
 
 # Batch semantic deletion
 curl -X POST http://localhost:8090/api/v1/memo/delete-by-query \
+  -H "X-API-KEY: your_auth_token" \
   -H "Content-Type: application/json" \
   -d '{
     "user_id": "user-001",
@@ -287,7 +299,13 @@ curl http://localhost:8090/health
 
 ### MCP Server (Claude Desktop / OpenClaw)
 
-ClawMem includes a built-in MCP server binary (`clawmem-mcp`) for integration with MCP-compatible clients.
+ClawMem includes a built-in MCP server binary (`clawmem-mcp`) for seamless integration with MCP-compatible clients. It exposes 5 core tenant-isolated tools:
+
+- `add_memory`: Traditional append-only storage.
+- `search_memory`: Semantic retrieval tool.
+- `set_memory`: Overwrite specific facts intelligently.
+- `get_preferences`: Extract high-priority preference rules.
+- `delete_memory`: Erase a specific memory fragment.
 
 ```json
 {

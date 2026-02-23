@@ -202,9 +202,19 @@ func (s *MemoryService) SearchMemory(ctx context.Context, req *model.SearchMemor
 	return finalResults, nil
 }
 
-// GetMemoryCount 获取记忆总数
+// GetMemoryCount 获取活跃的记忆总数
 func (s *MemoryService) GetMemoryCount() (int64, error) {
 	return s.sqlStore.Count()
+}
+
+// GetMemoryMaxCount 获取系统预算的活跃记忆限制
+func (s *MemoryService) GetMemoryMaxCount() (int, error) {
+	return s.cfg.MemoryMaxCount, nil
+}
+
+// GetStats 获取面板监控统计数据
+func (s *MemoryService) GetStats() (map[string]interface{}, error) {
+	return s.sqlStore.GetStats()
 }
 
 // DeleteMemoryByID 软删除单条记忆
