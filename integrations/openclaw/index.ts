@@ -24,17 +24,29 @@ function extractText(content: any): string {
 
 function cleanUserContent(text: string): string {
   if (!text) return "";
+
+  // 1. 移除 ClawMem Recall 注入块
   const recallMarker = "## ClawMem Recall";
   const markerIdx = text.indexOf(recallMarker);
   if (markerIdx !== -1) {
     const endMarker = "Current query takes priority.\n";
     const endIdx = text.indexOf(endMarker, markerIdx);
     if (endIdx !== -1) {
-      return (text.slice(0, markerIdx) + text.slice(endIdx + endMarker.length)).trim();
+      text = (text.slice(0, markerIdx) + text.slice(endIdx + endMarker.length)).trim();
+    } else {
+      text = text.slice(0, markerIdx).trim();
     }
-    return text.slice(0, markerIdx).trim();
   }
-  return text;
+
+  // 2. 移除 OpenClaw 元数据块
+  text = text.replace(/Conversation info \(untrusted metadata\):[\s\S]*?```\s*/g, "");
+  text = text.replace(/Sender \(untrusted metadata\):[\s\S]*?```\s*/g, "");
+  text = text.replace(/Replied message \(untrusted metadata\):[\s\S]*?```\s*/g, "");
+
+  // 3. 移除 cron 任务前缀
+  text = text.replace(/\[cron:[^\]]+\]\s*/g, "");
+
+  return text.trim();
 }
 
 function pad2(v: number): string {
