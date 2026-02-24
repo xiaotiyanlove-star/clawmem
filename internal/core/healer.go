@@ -27,6 +27,13 @@ func (h *HealerScheduler) Start() {
 	h.ticker = time.NewTicker(5 * time.Minute)
 	go func() {
 		log.Println("[INFO] Background Healer Scheduler started (interval: 5m)")
+
+		// 服务启动时，立即执行一次脏数据探测和云端自愈
+		log.Println("[INFO] Healer initiating startup check...")
+		if err := h.service.RunHeal(context.Background()); err != nil {
+			log.Printf("[WARN] Startup Heal failed: %v", err)
+		}
+
 		for {
 			select {
 			case <-h.ticker.C:

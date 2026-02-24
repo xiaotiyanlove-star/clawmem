@@ -84,6 +84,12 @@ func (ds *DreamScheduler) loop() {
 	ticker := time.NewTicker(ds.interval)
 	defer ticker.Stop()
 
+	// 服务启动时，立即进行一次梦境梳理和数据清理
+	log.Println("[DREAM] Initiating startup dream cycle...")
+	if err := ds.service.RunDream(context.Background()); err != nil {
+		log.Printf("[DREAM] Startup Error: %v", err)
+	}
+
 	for {
 		select {
 		case <-ticker.C:
